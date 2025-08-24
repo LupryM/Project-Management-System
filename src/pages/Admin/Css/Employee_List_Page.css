@@ -1,0 +1,68 @@
+.employee-list-container {
+  padding: 20px;
+  font-family: sans-serif;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.header-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.header-controls input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  min-width: 250px;
+}
+
+.employee-table {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table-header,
+.employee-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr 0.8fr 0.8fr 0.8fr;
+  padding: 12px 15px;
+  align-items: center;
+}
+
+.table-header {
+  background: #f5f5f5;
+  font-weight: bold;
+  border-bottom: 1px solid #ddd;
+}
+
+.employee-row {
+  border-bottom: 1px solid #eee;
+}
+
+.employee-row:last-child {
+  border-bottom: none;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actions button {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  background: #f5f5f5;
+}

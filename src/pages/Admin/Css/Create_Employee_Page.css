@@ -1,0 +1,22 @@
+.form-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  width: 300px;
+  margin: 20px;
+}
+
+.form-fields input,
+.form-fields select {
+  width: 100%;
+  padding: 8px;
+  margin: 5px 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.form-card button {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+}

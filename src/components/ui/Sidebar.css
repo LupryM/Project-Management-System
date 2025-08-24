@@ -1,0 +1,36 @@
+/* Sidebar.css */
+
+/* Make sure nav links stack vertically */
+nav.flex-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem; /* spacing between links */
+}
+
+/* Style links */
+nav.flex-column a {
+  color: #495057;
+  text-decoration: none;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem; /* rounded corners */
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Active link (NavLink adds 'active' automatically) */
+nav.flex-column a.active {
+  background-color: #0d6efd;
+  color: #fff;
+}
+
+/* Hover effect */
+nav.flex-column a:hover {
+  background-color: #e9ecef;
+  color: #0d6efd;
+}
+
+/* Sidebar general styling */
+.d-flex.flex-column.h-100 {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}

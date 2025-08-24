@@ -1,43 +1,115 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Company Portal</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
     />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+    <style>
+      /* Fix for the layout issue */
+      .app-container {
+        display: flex;
+        min-height: 100vh;
+      }
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
+      .main-content {
+        flex: 1;
+        padding: 1.5rem;
+        overflow: auto;
+        background-color: #f8f9fa;
+      }
+
+      /* Sidebar styling */
+      .sidebar {
+        width: 250px;
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-right: 1px solid #dee2e6;
+        flex-shrink: 0;
+      }
+
+      /* Navigation link styling */
+      .sidebar nav a {
+        display: block;
+        padding: 0.5rem 1rem;
+        margin-bottom: 0.5rem;
+        text-decoration: none;
+        color: #495057;
+        border-radius: 0.25rem;
+      }
+
+      .sidebar nav a:hover {
+        background-color: #e9ecef;
+      }
+
+      .sidebar nav a.active {
+        background-color: #007bff;
+        color: white;
+      }
+
+      /* Logout button */
+      .logout-btn {
+        margin-top: auto;
+      }
+    </style>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+    <div id="root">
+      <div class="app-container">
+        <div class="sidebar">
+          <div class="d-flex flex-column h-100">
+            <div class="mb-4">
+              <h4 class="text-primary">Company Portal</h4>
+            </div>
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+            <nav class="flex-column">
+              <a href="#dashboard">Dashboard</a>
+              <a href="#employees">User Management</a>
+              <a href="#projects">Projects</a>
+              <a href="#tasks">My Tasks</a>
+              <a href="#profile">Profile</a>
+              <a href="#settings">Settings</a>
+            </nav>
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
+            <div class="mt-auto">
+              <button class="btn btn-outline-danger w-100">Logout</button>
+            </div>
+          </div>
+        </div>
+
+        <main class="main-content">
+          <h1>Dashboard Content</h1>
+          <p>
+            This is the main content area that was previously being squeezed
+            into the sidebar.
+          </p>
+
+          <div class="card">
+            <div class="card-body">
+              <h5 class="card-title">Welcome to your dashboard</h5>
+              <p class="card-text">
+                Now the content displays properly in the main area instead of
+                being constrained to the sidebar.
+              </p>
+              <a href="#" class="btn btn-primary">Sample Button</a>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <h3>Recent Activity</h3>
+            <ul class="list-group">
+              <li class="list-group-item">Project update submitted</li>
+              <li class="list-group-item">New task assigned</li>
+              <li class="list-group-item">Meeting scheduled for tomorrow</li>
+            </ul>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   </body>
 </html>

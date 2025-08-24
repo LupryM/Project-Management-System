@@ -1,0 +1,22 @@
+/* EmployeeDashboard.css */
+.employee-dashboard {
+  padding: 20px;
+  background-color: #f8f9fa;
+  min-height: 100vh;
+}
+
+.employee-dashboard .card {
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.employee-dashboard .card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.employee-dashboard .card-header {
+  background-color: white;
+  border-bottom: 1px solid #e9ecef;
+}
