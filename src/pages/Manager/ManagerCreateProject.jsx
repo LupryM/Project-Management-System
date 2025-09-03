@@ -8,15 +8,19 @@ import {
   Row,
   Col,
   Card,
+  Tabs,
+  Tab,
 } from "react-bootstrap";
 import { supabase } from "../../lib/supabaseClient";
 import { Link } from "react-router-dom";
+import { logActivity } from "../../lib/logger";
 
-const ViewProjects = () => {
+const ManagerProjectDashboard = () => {
   // STATE FOR PROJECTS LIST
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [filterText, setFilterText] = useState("");
 
   // MODAL STATE
   const [showModal, setShowModal] = useState(false);
@@ -77,17 +81,22 @@ const ViewProjects = () => {
     }
   }, [session]);
 
-  // FETCH PROJECTS FROM SUPABASE
+  // FETCH PROJECTS FROM SUPABASE - ONLY MANAGER'S PROJECTS
   const fetchProjects = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      if (!session?.user?.id) {
+        throw new Error("No user session found");
+      }
+
+      // Only fetch projects where the current user is the manager
       let query = supabase.from("projects").select(`
           *,
-          teams (name),
-          manager:profiles!projects_manager_id_fkey (first_name, last_name)
-        `);
+          teams (name, description),
+          manager:profiles!projects_manager_id_fkey (first_name, last_name, email)
+        `).eq("manager_id", session.user.id);
 
       const { data, error } = await query.order("due_date", {
         ascending: true,
@@ -162,7 +171,7 @@ const ViewProjects = () => {
 
     try {
       if (currentProject) {
-        // Update existing project
+        // Update existing project - only if current user is the manager
         const { error } = await supabase
           .from("projects")
           .update({
@@ -175,25 +184,42 @@ const ViewProjects = () => {
             due_date: formData.due_date,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", currentProject.id);
+          .eq("id", currentProject.id)
+          .eq("manager_id", session.user.id); // Ensure only manager can edit their projects
 
         if (error) throw error;
+
+        // Log the activity
+        await logActivity({
+          type: "project_updated",
+          details: `Manager updated project "${formData.name}".`,
+          projectId: currentProject.id,
+          userId: session.user.id,
+        });
       } else {
-        // Add new project
-        const { error } = await supabase.from("projects").insert({
+        // Add new project with current user as manager
+        const { data, error } = await supabase.from("projects").insert({
           name: formData.name,
           description: formData.description,
           status: formData.status,
           team_id: formData.team_id,
-          manager_id: formData.manager_id,
+          manager_id: session.user.id, // Set current user as manager
           start_date: formData.start_date,
           due_date: formData.due_date,
           created_by: session.user.id,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
+        }).select().single();
 
         if (error) throw error;
+
+        // Log the activity
+        await logActivity({
+          type: "project_created",
+          details: `Manager created project "${formData.name}".`,
+          projectId: data.id,
+          userId: session.user.id,
+        });
       }
 
       // Refresh projects list
@@ -205,6 +231,35 @@ const ViewProjects = () => {
     }
   };
 
+  // DELETE PROJECT
+  const handleDeleteProject = async (projectId, projectName) => {
+    if (!window.confirm(`Are you sure you want to delete "${projectName}"?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .delete()
+        .eq("id", projectId)
+        .eq("manager_id", session.user.id); // Ensure only manager can delete their projects
+
+      if (error) throw error;
+
+      // Log the activity
+      await logActivity({
+        type: "project_deleted",
+        details: `Manager deleted project "${projectName}".`,
+        projectId: projectId,
+        userId: session.user.id,
+      });
+
+      fetchProjects();
+    } catch (error) {
+      setError("Error deleting project: " + error.message);
+    }
+  };
+
   // RENDER AUTH COMPONENT IF NOT SIGNED IN
   if (!session) {
     return (
@@ -212,7 +267,7 @@ const ViewProjects = () => {
         <Card style={{ width: "400px" }}>
           <Card.Body>
             <h2 className="text-center mb-4">Sign In Required</h2>
-            <p className="text-center">Please sign in to view projects.</p>
+            <p className="text-center">Please sign in to view your projects.</p>
             <Button
               variant="primary"
               onClick={() =>
@@ -233,6 +288,7 @@ const ViewProjects = () => {
 
   // FORMAT DATE FOR DISPLAY
   const formatDate = (dateString) => {
+    if (!dateString) return "Not set";
     return new Date(dateString).toLocaleDateString();
   };
 
@@ -247,35 +303,45 @@ const ViewProjects = () => {
     return statusMap[status] || status;
   };
 
-  // GET TEAM NAME BY ID
-  const getTeamName = (teamId) => {
-    const team = teams.find((team) => team.id === teamId);
-    return team ? team.name : "Unassigned";
+  // GET STATUS BADGE VARIANT
+  const getStatusVariant = (status) => {
+    const variantMap = {
+      planned: "secondary",
+      in_progress: "primary",
+      on_hold: "warning",
+      completed: "success",
+    };
+    return variantMap[status] || "secondary";
   };
 
-  // GET MANAGER NAME BY ID
-  const getManagerName = (managerId) => {
-    const manager = users.find((user) => user.id === managerId);
-    return manager
-      ? `${manager.first_name} ${manager.last_name}`
-      : "Unassigned";
+  // FILTER PROJECTS
+  const filteredProjects = projects.filter(project =>
+    project.name.toLowerCase().includes(filterText.toLowerCase()) ||
+    project.description?.toLowerCase().includes(filterText.toLowerCase()) ||
+    project.teams?.name?.toLowerCase().includes(filterText.toLowerCase())
+  );
+
+  // GET PROJECT STATS
+  const projectStats = {
+    total: projects.length,
+    planned: projects.filter(p => p.status === 'planned').length,
+    in_progress: projects.filter(p => p.status === 'In_progress').length,
+    on_hold: projects.filter(p => p.status === 'on_hold').length,
+    completed: projects.filter(p => p.status === 'completed').length,
   };
 
   return (
     <Container fluid className="projects-container">
       {/* HEADER SECTION */}
       <Row className="projects-header align-items-center mb-4">
-        <Col md={6}>
-          <h2>Active Projects</h2>
-          <p className="text-muted">Welcome, {session.user.email}</p>
+        <Col md={8}>
+          <h2>Manager Dashboard</h2>
+          <p className="text-muted">
+            Managing your projects - {session.user.email}
+          </p>
         </Col>
-        <Col md={6} className="text-end">
+        <Col md={4} className="text-end">
           <div className="d-flex justify-content-end gap-2">
-            <Form.Control
-              type="text"
-              placeholder="Filter projects..."
-              className="w-50"
-            />
             <Button variant="primary" onClick={() => handleShowModal()}>
               + New Project
             </Button>
@@ -286,6 +352,59 @@ const ViewProjects = () => {
               Sign Out
             </Button>
           </div>
+        </Col>
+      </Row>
+
+      {/* STATS CARDS */}
+      <Row className="mb-4">
+        <Col md={3}>
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-primary">{projectStats.total}</h3>
+              <p className="mb-0">Total Projects</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-info">{projectStats.in_progress}</h3>
+              <p className="mb-0">In Progress</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-warning">{projectStats.on_hold}</h3>
+              <p className="mb-0">On Hold</p>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3}>
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-success">{projectStats.completed}</h3>
+              <p className="mb-0">Completed</p>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* FILTER BAR */}
+      <Row className="mb-4">
+        <Col md={6}>
+          <Form.Control
+            type="text"
+            placeholder="Search projects by name, description, or team..."
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+          />
+        </Col>
+        <Col md={6} className="text-end">
+          <Button variant="outline-info" onClick={fetchProjects}>
+            Refresh
+          </Button>
         </Col>
       </Row>
 
@@ -302,47 +421,63 @@ const ViewProjects = () => {
       )}
 
       {/* LOADING STATE */}
-      {loading && <div className="text-center my-4">Loading projects...</div>}
+      {loading && <div className="text-center my-4">Loading your projects...</div>}
 
       {/* PROJECTS LIST */}
       <Row>
-        {projects.map((project) => (
+        {filteredProjects.map((project) => (
           <Col key={project.id} md={6} lg={4} className="mb-4">
-            <Card className="project-card h-100">
+            <Card className="project-card h-100 shadow-sm">
               <Card.Body>
                 <div className="project-header d-flex justify-content-between align-items-start mb-3">
-                  <Card.Title>{project.name}</Card.Title>
-                  <span className={`status ${project.status}`}>
+                  <Card.Title className="h5">{project.name}</Card.Title>
+                  <span
+                    className={`badge bg-${getStatusVariant(project.status)}`}
+                  >
                     {getStatusText(project.status)}
                   </span>
                 </div>
                 <Card.Text className="project-details">
                   <div className="mb-2">
                     <strong>Description:</strong>{" "}
-                    {project.description || "No description"}
+                    <span className="text-muted">
+                      {project.description || "No description"}
+                    </span>
                   </div>
                   <div className="mb-2">
                     <strong>Team:</strong>{" "}
-                    {project.teams?.name || getTeamName(project.team_id)}
+                    <span className="text-info">
+                      {project.teams?.name || "Unassigned"}
+                    </span>
                   </div>
                   <div className="mb-2">
-                    <strong>Manager:</strong>{" "}
-                    {project.manager
-                      ? `${project.manager.first_name} ${project.manager.last_name}`
-                      : getManagerName(project.manager_id)}
+                    <strong>Start Date:</strong>{" "}
+                    <span className="text-muted">
+                      {formatDate(project.start_date)}
+                    </span>
                   </div>
                   <div className="mb-2">
-                    <strong>Due Date:</strong> {formatDate(project.due_date)}
+                    <strong>Due Date:</strong>{" "}
+                    <span className="text-muted">
+                      {formatDate(project.due_date)}
+                    </span>
+                  </div>
+                  <div className="mb-2">
+                    <strong>Created:</strong>{" "}
+                    <span className="text-muted">
+                      {formatDate(project.created_at)}
+                    </span>
                   </div>
                 </Card.Text>
-                <div className="project-actions d-flex gap-2">
+                <div className="project-actions d-flex gap-2 flex-wrap">
                   <Button
                     as={Link}
-                    to={`/project/${project.id}`}
-                    variant="outline-primary"
+                    to={`/manager/project/${project.id}`}
+                    variant="primary"
                     size="sm"
+                    className="flex-grow-1"
                   >
-                    View Details
+                    Manage
                   </Button>
                   <Button
                     variant="outline-secondary"
@@ -350,6 +485,13 @@ const ViewProjects = () => {
                     onClick={() => handleShowModal(project)}
                   >
                     Edit
+                  </Button>
+                  <Button
+                    variant="outline-danger"
+                    size="sm"
+                    onClick={() => handleDeleteProject(project.id, project.name)}
+                  >
+                    Delete
                   </Button>
                 </div>
               </Card.Body>
@@ -359,13 +501,40 @@ const ViewProjects = () => {
       </Row>
 
       {/* EMPTY STATE */}
-      {!loading && projects.length === 0 && (
+      {!loading && filteredProjects.length === 0 && projects.length === 0 && (
         <div className="text-center my-5">
-          <p>No projects found. Create your first project!</p>
+          <Card className="border-0">
+            <Card.Body>
+              <h4 className="text-muted">No projects found</h4>
+              <p className="text-muted">
+                You don't have any projects assigned as manager yet.
+              </p>
+              <Button variant="primary" size="lg" onClick={() => handleShowModal()}>
+                Create Your First Project
+              </Button>
+            </Card.Body>
+          </Card>
         </div>
       )}
 
-      {/* MODAL */}
+      {/* FILTERED EMPTY STATE */}
+      {!loading && filteredProjects.length === 0 && projects.length > 0 && (
+        <div className="text-center my-5">
+          <Card className="border-0">
+            <Card.Body>
+              <h4 className="text-muted">No projects match your search</h4>
+              <p className="text-muted">
+                Try adjusting your search terms or clear the filter.
+              </p>
+              <Button variant="outline-secondary" onClick={() => setFilterText("")}>
+                Clear Filter
+              </Button>
+            </Card.Body>
+          </Card>
+        </div>
+      )}
+
+      {/* CREATE/EDIT PROJECT MODAL */}
       <Modal show={showModal} onHide={handleCloseModal} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>
@@ -474,14 +643,15 @@ const ViewProjects = () => {
                 onChange={(e) =>
                   setFormData({ ...formData, manager_id: e.target.value })
                 }
+                disabled={true} // Managers can only manage their own projects
               >
-                <option value="">Select manager</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.first_name} {user.last_name} ({user.email})
-                  </option>
-                ))}
+                <option value={session?.user?.id}>
+                  You ({session?.user?.email})
+                </option>
               </Form.Select>
+              <Form.Text className="text-muted">
+                You are automatically assigned as the project manager
+              </Form.Text>
             </Form.Group>
           </Modal.Body>
 
@@ -499,4 +669,4 @@ const ViewProjects = () => {
   );
 };
 
-export default ViewProjects;
+export default ManagerProjectDashboard;

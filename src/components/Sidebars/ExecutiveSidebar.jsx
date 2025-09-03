@@ -23,6 +23,12 @@ const ExecutiveSidebar = () => {
         >
           Reports
         </Link>
+        <Link
+          to="/LogChanges"
+          className={location.pathname === "/reports" ? "active" : ""}
+        >
+          Log Changes
+        </Link>
         <button onClick={() => supabase.auth.signOut()} className="logout-btn">
           Sign Out
         </button>

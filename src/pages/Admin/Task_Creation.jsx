@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Form, Button, Row, Col, Card, Alert } from "react-bootstrap";
 import { supabase } from "../lib/supabaseClient";
+import { logActivity } from "../lib/logger"; // ✅ Import logger
 
 const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
   const [taskForm, setTaskForm] = useState({
@@ -18,15 +19,15 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setTaskForm(prev => ({
+    setTaskForm((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
   };
 
   const handleAssigneeChange = (userId) => {
     if (selectedAssignees.includes(userId)) {
-      setSelectedAssignees(selectedAssignees.filter(id => id !== userId));
+      setSelectedAssignees(selectedAssignees.filter((id) => id !== userId));
     } else {
       setSelectedAssignees([...selectedAssignees, userId]);
     }
@@ -39,6 +40,14 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
     setSuccess(false);
 
     try {
+      // ✅ Get user safely once
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) throw new Error("No authenticated user found");
+
       // First, create the task
       const { data: taskData, error: taskError } = await supabase
         .from("tasks")
@@ -50,7 +59,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
           start_date: taskForm.start_date || null,
           due_date: taskForm.due_date || null,
           project_id: projectId,
-          created_by: (await supabase.auth.getUser()).data.user.id,
+          created_by: user.id,
         })
         .select()
         .single();
@@ -59,7 +68,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
 
       // Then create assignments for each selected user
       if (selectedAssignees.length > 0) {
-        const assignments = selectedAssignees.map(userId => ({
+        const assignments = selectedAssignees.map((userId) => ({
           task_id: taskData.id,
           user_id: userId,
         }));
@@ -70,6 +79,13 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
 
         if (assignmentError) throw assignmentError;
       }
+
+      // ✅ Log activity to project_logs
+      await logActivity({
+        projectId: projectId,
+        type: "task_created",
+        details: `Task "${taskData.title}" was created.`,
+      });
 
       // Reset form and show success
       setTaskForm({
@@ -82,10 +98,9 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
       });
       setSelectedAssignees([]);
       setSuccess(true);
-      
+
       // Notify parent component
       if (onTaskCreated) onTaskCreated();
-      
     } catch (error) {
       console.error("Error creating task:", error.message);
       setError("Error creating task: " + error.message);
@@ -105,9 +120,13 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
             {error}
           </Alert>
         )}
-        
+
         {success && (
-          <Alert variant="success" onClose={() => setSuccess(false)} dismissible>
+          <Alert
+            variant="success"
+            onClose={() => setSuccess(false)}
+            dismissible
+          >
             Task created successfully!
           </Alert>
         )}
@@ -157,7 +176,10 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
 
           <Form.Group className="mb-3">
             <Form.Label>Assign To (Multiple Selection)</Form.Label>
-            <div className="border rounded p-3" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+            <div
+              className="border rounded p-3"
+              style={{ maxHeight: "200px", overflowY: "auto" }}
+            >
               {teamMembers.length > 0 ? (
                 teamMembers.map((member) => (
                   <Form.Check
@@ -215,11 +237,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
             </Form.Select>
           </Form.Group>
 
-          <Button 
-            variant="primary" 
-            type="submit" 
-            disabled={loading}
-          >
+          <Button variant="primary" type="submit" disabled={loading}>
             {loading ? "Creating Task..." : "Create Task"}
           </Button>
         </Form>

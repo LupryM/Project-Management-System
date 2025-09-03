@@ -3,7 +3,6 @@ import {
   Modal,
   Button,
   Form,
-  Alert,
   Container,
   Row,
   Col,
@@ -12,11 +11,10 @@ import {
 import { supabase } from "../../lib/supabaseClient";
 import { Link } from "react-router-dom";
 
-const ViewProjects = () => {
+const ManagerProjectList = () => {
   // STATE FOR PROJECTS LIST
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   // MODAL STATE
   const [showModal, setShowModal] = useState(false);
@@ -61,7 +59,7 @@ const ViewProjects = () => {
 
         return () => subscription.unsubscribe();
       } catch (error) {
-        setError(error.message);
+        console.error("Auth initialization error:", error.message);
       }
     };
 
@@ -77,27 +75,30 @@ const ViewProjects = () => {
     }
   }, [session]);
 
-  // FETCH PROJECTS FROM SUPABASE
+  // FETCH PROJECTS FROM SUPABASE - ONLY MANAGER'S PROJECTS
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      setError(null);
+      if (!session?.user?.id) return;
 
-      let query = supabase.from("projects").select(`
+      let query = supabase
+        .from("projects")
+        .select(
+          `
           *,
           teams (name),
           manager:profiles!projects_manager_id_fkey (first_name, last_name)
-        `);
+        `
+        )
+        .eq("manager_id", session.user.id);
 
       const { data, error } = await query.order("due_date", {
         ascending: true,
       });
 
-      if (error) throw error;
-      setProjects(data || []);
+      if (!error) setProjects(data || []);
     } catch (error) {
       console.error("Error fetching projects:", error.message);
-      setError("Error loading projects: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -111,11 +112,9 @@ const ViewProjects = () => {
         .select("id, first_name, last_name, email")
         .order("first_name", { ascending: true });
 
-      if (error) throw error;
-      setUsers(data || []);
+      if (!error) setUsers(data || []);
     } catch (error) {
       console.error("Error fetching users:", error.message);
-      setError("Error loading users: " + error.message);
     }
   };
 
@@ -127,11 +126,9 @@ const ViewProjects = () => {
         .select("id, name, description")
         .order("name", { ascending: true });
 
-      if (error) throw error;
-      setTeams(data || []);
+      if (!error) setTeams(data || []);
     } catch (error) {
       console.error("Error fetching teams:", error.message);
-      setError("Error loading teams: " + error.message);
     }
   };
 
@@ -158,11 +155,10 @@ const ViewProjects = () => {
   // HANDLE FORM SUBMIT
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
 
     try {
       if (currentProject) {
-        // Update existing project
+        // Update existing project - only if current user is the manager
         const { error } = await supabase
           .from("projects")
           .update({
@@ -175,17 +171,18 @@ const ViewProjects = () => {
             due_date: formData.due_date,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", currentProject.id);
+          .eq("id", currentProject.id)
+          .eq("manager_id", session.user.id);
 
         if (error) throw error;
       } else {
-        // Add new project
+        // Add new project with current user as manager
         const { error } = await supabase.from("projects").insert({
           name: formData.name,
           description: formData.description,
           status: formData.status,
           team_id: formData.team_id,
-          manager_id: formData.manager_id,
+          manager_id: session.user.id,
           start_date: formData.start_date,
           due_date: formData.due_date,
           created_by: session.user.id,
@@ -196,12 +193,10 @@ const ViewProjects = () => {
         if (error) throw error;
       }
 
-      // Refresh projects list
       fetchProjects();
       handleCloseModal();
     } catch (error) {
       console.error("Error saving project:", error.message);
-      setError("Error saving project: " + error.message);
     }
   };
 
@@ -212,7 +207,7 @@ const ViewProjects = () => {
         <Card style={{ width: "400px" }}>
           <Card.Body>
             <h2 className="text-center mb-4">Sign In Required</h2>
-            <p className="text-center">Please sign in to view projects.</p>
+            <p className="text-center">Please sign in to view your projects.</p>
             <Button
               variant="primary"
               onClick={() =>
@@ -266,8 +261,10 @@ const ViewProjects = () => {
       {/* HEADER SECTION */}
       <Row className="projects-header align-items-center mb-4">
         <Col md={6}>
-          <h2>Active Projects</h2>
-          <p className="text-muted">Welcome, {session.user.email}</p>
+          <h2>My Projects</h2>
+          <p className="text-muted">
+            Projects you manage - {session.user.email}
+          </p>
         </Col>
         <Col md={6} className="text-end">
           <div className="d-flex justify-content-end gap-2">
@@ -289,20 +286,10 @@ const ViewProjects = () => {
         </Col>
       </Row>
 
-      {/* ERROR ALERT */}
-      {error && (
-        <Alert
-          variant="danger"
-          className="mb-3"
-          onClose={() => setError(null)}
-          dismissible
-        >
-          {error}
-        </Alert>
-      )}
-
       {/* LOADING STATE */}
-      {loading && <div className="text-center my-4">Loading projects...</div>}
+      {loading && (
+        <div className="text-center my-4">Loading your projects...</div>
+      )}
 
       {/* PROJECTS LIST */}
       <Row>
@@ -361,7 +348,11 @@ const ViewProjects = () => {
       {/* EMPTY STATE */}
       {!loading && projects.length === 0 && (
         <div className="text-center my-5">
-          <p>No projects found. Create your first project!</p>
+          <h4>No projects found</h4>
+          <p>You don't have any projects assigned as manager yet.</p>
+          <Button variant="primary" onClick={() => handleShowModal()}>
+            Create Your First Project
+          </Button>
         </div>
       )}
 
@@ -471,17 +462,15 @@ const ViewProjects = () => {
               <Form.Label>Manager</Form.Label>
               <Form.Select
                 value={formData.manager_id}
-                onChange={(e) =>
-                  setFormData({ ...formData, manager_id: e.target.value })
-                }
+                disabled={true} // Managers can only manage their own projects
               >
-                <option value="">Select manager</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.first_name} {user.last_name} ({user.email})
-                  </option>
-                ))}
+                <option value={session?.user?.id}>
+                  You ({session?.user?.email})
+                </option>
               </Form.Select>
+              <Form.Text className="text-muted">
+                You are automatically assigned as the project manager
+              </Form.Text>
             </Form.Group>
           </Modal.Body>
 
@@ -499,4 +488,4 @@ const ViewProjects = () => {
   );
 };
 
-export default ViewProjects;
+export default ManagerProjectList;

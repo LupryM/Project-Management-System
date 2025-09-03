@@ -10,15 +10,18 @@ import {
   Modal,
   Row,
   Spinner,
+  ListGroup,
+  Alert,
 } from "react-bootstrap";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../../lib/supabaseClient";
+import { logActivity } from "../../lib/logger";
 
 // ----- Helpers & Mappings -----
 const STATUS = [
   { key: "todo", label: "To Do" },
   { key: "in_progress", label: "In Progress" },
-  { key: "Completed", label: "Completed" }, // <-- updated capitalization
+  { key: "Completed", label: "Completed" },
 ];
 
 const PRIORITY = [
@@ -69,15 +72,123 @@ async function fetchMyTasks(userId) {
   if (error) throw error;
   return (data || []).map((t) => ({
     ...t,
-    status: t.status || "todo", // normalized
+    status: t.status || "todo",
     priority: Number(t.priority) || 3,
   }));
 }
 
+// ----- Comments component -----
+const TaskComments = ({ taskId, currentUser }) => {
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const fetchComments = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("task_comments")
+      .select(
+        `
+        comment_id,
+        comment_text,
+        created_at,
+        profiles:user_id (first_name, last_name)
+      `
+      )
+      .eq("task_id", taskId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setError("Failed to load comments");
+    } else {
+      setComments(data);
+    }
+    setLoading(false);
+  };
+
+  const handleAddComment = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+
+    const { error } = await supabase.from("task_comments").insert([
+      {
+        task_id: taskId,
+        user_id: currentUser.id,
+        comment_text: newComment.trim(),
+      },
+    ]);
+
+    if (error) {
+      setError("Failed to add comment");
+    } else {
+      setNewComment("");
+      fetchComments();
+    }
+  };
+
+  useEffect(() => {
+    fetchComments();
+
+    const subscription = supabase
+      .channel(`comments-task-${taskId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "task_comments",
+          filter: `task_id=eq.${taskId}`,
+        },
+        (payload) => {
+          setComments((prev) => [...prev, payload.new]);
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(subscription);
+  }, [taskId]);
+
+  if (loading) return <Spinner animation="border" size="sm" />;
+
+  return (
+    <div className="mt-2">
+      {error && <Alert variant="danger">{error}</Alert>}
+      <ListGroup className="mb-2">
+        {comments.length === 0 && (
+          <ListGroup.Item>No comments yet</ListGroup.Item>
+        )}
+        {comments.map((c) => (
+          <ListGroup.Item key={c.comment_id}>
+            <strong>{c.profiles?.first_name || "User"}:</strong>{" "}
+            {c.comment_text}{" "}
+            <small className="text-muted">
+              ({new Date(c.created_at).toLocaleString()})
+            </small>
+          </ListGroup.Item>
+        ))}
+      </ListGroup>
+
+      <Form onSubmit={handleAddComment}>
+        <Form.Group className="d-flex gap-2">
+          <Form.Control
+            type="text"
+            placeholder="Add a comment..."
+            value={newComment}
+            onChange={(e) => setNewComment(e.target.value)}
+          />
+          <Button type="submit" size="sm">
+            Add
+          </Button>
+        </Form.Group>
+      </Form>
+    </div>
+  );
+};
+
 // ----- Component -----
 export default function EmployeeTaskView() {
   const qc = useQueryClient();
-
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
@@ -92,33 +203,19 @@ export default function EmployeeTaskView() {
   });
 
   // User
-  const {
-    data: user,
-    isLoading: loadingUser,
-    isError: userErr,
-    error: userError,
-  } = useQuery({
+  const { data: user, isLoading: loadingUser } = useQuery({
     queryKey: ["me"],
     queryFn: getCurrentUser,
   });
 
   // Projects
-  const {
-    data: projects,
-    isLoading: loadingProjects,
-    isError: projErr,
-  } = useQuery({
+  const { data: projects = [], isLoading: loadingProjects } = useQuery({
     queryKey: ["projects"],
     queryFn: fetchProjects,
   });
 
   // Tasks
-  const {
-    data: tasks = [],
-    isLoading: loadingTasks,
-    isError: tasksErr,
-    error: tasksError,
-  } = useQuery({
+  const { data: tasks = [], isLoading: loadingTasks } = useQuery({
     queryKey: ["tasks", user?.id],
     queryFn: () => fetchMyTasks(user.id),
     enabled: !!user?.id,
@@ -146,14 +243,13 @@ export default function EmployeeTaskView() {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => supabase.removeChannel(channel);
   }, [user?.id, qc]);
 
   // Mutations
   const createTask = useMutation({
     mutationFn: async (payload) => {
+      if (!user?.id) throw new Error("Cannot create task without user ID");
       const { data: task, error } = await supabase
         .from("tasks")
         .insert([payload])
@@ -166,13 +262,19 @@ export default function EmployeeTaskView() {
         .single();
       if (error) throw error;
 
-      if (newTask.assignToSelf && user?.id) {
+      if (payload.assignToSelf && user?.id) {
         const { error: assignErr } = await supabase
           .from("task_assignments")
           .insert([{ task_id: task.id, user_id: user.id }]);
         if (assignErr) throw assignErr;
       }
 
+      await logActivity(
+        "task_created",
+        `Created task: ${payload.title}`,
+        user.id,
+        payload.project_id
+      );
       return task;
     },
     onSuccess: () => {
@@ -190,7 +292,8 @@ export default function EmployeeTaskView() {
   });
 
   const updateStatus = useMutation({
-    mutationFn: async ({ id, status }) => {
+    mutationFn: async ({ id, status, taskTitle, projectId }) => {
+      if (!user?.id) throw new Error("Cannot update task without user ID");
       const { data, error } = await supabase
         .from("tasks")
         .update({ status })
@@ -203,17 +306,38 @@ export default function EmployeeTaskView() {
         )
         .single();
       if (error) throw error;
+
+      await logActivity(
+        "status_changed",
+        `Changed task status to: ${status} - ${taskTitle}`,
+        user.id,
+        projectId
+      );
       return data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["tasks", user?.id] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks", user?.id] }),
   });
 
   const deleteTask = useMutation({
     mutationFn: async (id) => {
+      if (!user?.id) throw new Error("Cannot delete task without user ID");
+      const { data: taskToDelete } = await supabase
+        .from("tasks")
+        .select("title, project_id")
+        .eq("id", id)
+        .single();
+
       const { error } = await supabase.from("tasks").delete().eq("id", id);
       if (error) throw error;
+
+      if (taskToDelete) {
+        await logActivity(
+          "task_deleted",
+          `Deleted task: ${taskToDelete.title}`,
+          user.id,
+          taskToDelete.project_id
+        );
+      }
       return id;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks", user?.id] }),
@@ -238,7 +362,7 @@ export default function EmployeeTaskView() {
   }, [tasks, search, projectFilter]);
 
   const byStatus = useMemo(() => {
-    const map = { todo: [], in_progress: [], Completed: [] }; // <-- updated key
+    const map = { todo: [], in_progress: [], Completed: [] };
     for (const t of filtered) {
       const key = STATUS.some((s) => s.key === t.status) ? t.status : "todo";
       map[key].push(t);
@@ -253,7 +377,7 @@ export default function EmployeeTaskView() {
   const counts = {
     todo: byStatus.todo.length,
     in_progress: byStatus.in_progress.length,
-    Completed: byStatus.Completed.length, // <-- updated
+    Completed: byStatus.Completed.length,
     total: filtered.length,
   };
 
@@ -307,36 +431,56 @@ export default function EmployeeTaskView() {
               <PriorityBadge priority={task.priority} />
               <StatusBadge status={task.status} />
             </div>
+
+            {/* --- COMMENTS --- */}
+            {user && <TaskComments taskId={task.id} currentUser={user} />}
           </div>
 
           <Dropdown align="end">
-            <Dropdown.Toggle
-              size="sm"
-              variant="outline-light"
-              className="border"
-            >
-              Actions
+            <Dropdown.Toggle variant="secondary" size="sm">
+              ⋮
             </Dropdown.Toggle>
             <Dropdown.Menu>
-              <Dropdown.Header>Move to</Dropdown.Header>
-              {STATUS.map((s) => (
-                <Dropdown.Item
-                  key={s.key}
-                  active={task.status === s.key}
-                  onClick={() =>
-                    updateStatus.mutate({ id: task.id, status: s.key })
-                  }
-                >
-                  {s.label}
-                </Dropdown.Item>
-              ))}
+              <Dropdown.Item
+                onClick={() =>
+                  updateStatus.mutate({
+                    id: task.id,
+                    status: "todo",
+                    taskTitle: task.title,
+                    projectId: task.project_id,
+                  })
+                }
+              >
+                Mark To Do
+              </Dropdown.Item>
+              <Dropdown.Item
+                onClick={() =>
+                  updateStatus.mutate({
+                    id: task.id,
+                    status: "in_progress",
+                    taskTitle: task.title,
+                    projectId: task.project_id,
+                  })
+                }
+              >
+                Mark In Progress
+              </Dropdown.Item>
+              <Dropdown.Item
+                onClick={() =>
+                  updateStatus.mutate({
+                    id: task.id,
+                    status: "Completed",
+                    taskTitle: task.title,
+                    projectId: task.project_id,
+                  })
+                }
+              >
+                Mark Completed
+              </Dropdown.Item>
               <Dropdown.Divider />
               <Dropdown.Item
                 className="text-danger"
-                onClick={() =>
-                  window.confirm("Delete this task?") &&
-                  deleteTask.mutate(task.id)
-                }
+                onClick={() => deleteTask.mutate(task.id)}
               >
                 Delete
               </Dropdown.Item>
@@ -347,260 +491,146 @@ export default function EmployeeTaskView() {
     </Card>
   );
 
-  const CreateTaskModal = () => (
-    <Modal show={showCreate} onHide={() => setShowCreate(false)}>
-      <Modal.Header closeButton>
-        <Modal.Title>Create Task</Modal.Title>
-      </Modal.Header>
-      <Modal.Body>
-        <Form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!newTask.title.trim()) return;
-            setCreating(true);
-            try {
-              await createTask.mutateAsync({
-                title: newTask.title.trim(),
-                description: newTask.description.trim(),
-                project_id: newTask.project_id
-                  ? Number(newTask.project_id)
-                  : null,
-                priority: Number(newTask.priority) || 3,
-                status: "todo",
-                created_by: user?.id ?? null,
-                start_date: new Date().toISOString().split("T")[0],
-                due_date: newTask.due_date || null,
-              });
-            } catch (err) {
-              alert(
-                err?.message ||
-                  "Could not create task (RLS may block non-managers)."
-              );
-            } finally {
-              setCreating(false);
-            }
-          }}
-        >
-          <Form.Group className="mb-3">
-            <Form.Label>Title</Form.Label>
-            <Form.Control
-              value={newTask.title}
-              onChange={(e) =>
-                setNewTask((s) => ({ ...s, title: e.target.value }))
-              }
-              placeholder="e.g., Fix login bug"
-              required
-            />
-          </Form.Group>
+  if (loadingUser || loadingTasks || loadingProjects)
+    return <Spinner animation="border" />;
 
-          <Form.Group className="mb-3">
-            <Form.Label>Description</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={3}
-              value={newTask.description}
-              onChange={(e) =>
-                setNewTask((s) => ({ ...s, description: e.target.value }))
-              }
-              placeholder="Optional details"
-            />
-          </Form.Group>
+  return (
+    <Container fluid>
+      <Row className="mb-3">
+        <Col md={6}>
+          <Form.Control
+            placeholder="Search tasks..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </Col>
+        <Col md={4}>
+          <Form.Select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+          >
+            <option value="all">All Projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Form.Select>
+        </Col>
+        <Col md={2} className="text-end">
+          <Button onClick={() => setShowCreate(true)}>+ New Task</Button>
+        </Col>
+      </Row>
 
-          <Row className="g-3">
-            <Col md={7}>
-              <Form.Group>
-                <Form.Label>Project</Form.Label>
-                <Form.Select
-                  value={newTask.project_id}
-                  onChange={(e) =>
-                    setNewTask((s) => ({ ...s, project_id: e.target.value }))
-                  }
-                >
-                  <option value="">Select a project...</option>
-                  {(projects || []).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={5}>
-              <Form.Group>
-                <Form.Label>Due date</Form.Label>
-                <Form.Control
-                  type="date"
-                  value={newTask.due_date}
-                  onChange={(e) =>
-                    setNewTask((s) => ({ ...s, due_date: e.target.value }))
-                  }
-                />
-              </Form.Group>
-            </Col>
-          </Row>
+      <Row>
+        {STATUS.map((s) => (
+          <Col key={s.key} md={4}>
+            <h6>
+              {s.label} ({byStatus[s.key].length})
+            </h6>
+            {byStatus[s.key].map((t) => (
+              <TaskCard key={t.id} task={t} />
+            ))}
+          </Col>
+        ))}
+      </Row>
 
-          <Row className="g-3 mt-1">
-            <Col md={7}>
-              <Form.Group>
-                <Form.Label>Priority</Form.Label>
-                <Form.Select
-                  value={newTask.priority}
-                  onChange={(e) =>
-                    setNewTask((s) => ({
-                      ...s,
-                      priority: Number(e.target.value),
-                    }))
-                  }
-                >
-                  {PRIORITY.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={5} className="d-flex align-items-end">
+      <Modal show={showCreate} onHide={() => setShowCreate(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Create Task</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label>Title</Form.Label>
+              <Form.Control
+                value={newTask.title}
+                onChange={(e) =>
+                  setNewTask({ ...newTask, title: e.target.value })
+                }
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Description</Form.Label>
+              <Form.Control
+                as="textarea"
+                value={newTask.description}
+                onChange={(e) =>
+                  setNewTask({ ...newTask, description: e.target.value })
+                }
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Project</Form.Label>
+              <Form.Select
+                value={newTask.project_id}
+                onChange={(e) =>
+                  setNewTask({ ...newTask, project_id: e.target.value })
+                }
+              >
+                <option value="">Select project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Priority</Form.Label>
+              <Form.Select
+                value={newTask.priority}
+                onChange={(e) =>
+                  setNewTask({ ...newTask, priority: e.target.value })
+                }
+              >
+                {PRIORITY.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Due Date</Form.Label>
+              <Form.Control
+                type="date"
+                value={newTask.due_date}
+                onChange={(e) =>
+                  setNewTask({ ...newTask, due_date: e.target.value })
+                }
+              />
+            </Form.Group>
+
+            <Form.Group className="mb-3">
               <Form.Check
                 type="checkbox"
                 label="Assign to me"
                 checked={newTask.assignToSelf}
                 onChange={(e) =>
-                  setNewTask((s) => ({ ...s, assignToSelf: e.target.checked }))
+                  setNewTask({ ...newTask, assignToSelf: e.target.checked })
                 }
               />
-            </Col>
-          </Row>
-
-          <div className="d-flex justify-content-end mt-4">
-            <Button
-              variant="secondary"
-              className="me-2"
-              onClick={() => setShowCreate(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" disabled={creating}>
-              {creating ? "Creating..." : "Create Task"}
-            </Button>
-          </div>
-        </Form>
-      </Modal.Body>
-    </Modal>
-  );
-
-  // Loading/Error
-  if (loadingUser || loadingProjects || (loadingTasks && user?.id)) {
-    return (
-      <div className="d-flex align-items-center justify-content-center p-5">
-        <Spinner animation="border" className="me-3" />
-        <span>Loading your tasks…</span>
-      </div>
-    );
-  }
-  if (userErr)
-    return (
-      <div className="p-4 text-danger">Auth error: {userError?.message}</div>
-    );
-  if (tasksErr)
-    return (
-      <div className="p-4 text-danger">Task error: {tasksError?.message}</div>
-    );
-
-  // Main UI
-  return (
-    <Container fluid className="p-4">
-      {/* Top bar */}
-      <Row className="mb-4">
-        <Col>
-          <div className="d-flex align-items-center mb-2">
-            <h1 className="mb-0 me-3">My Tasks</h1>
-            <Badge bg="light" text="dark" className="fs-6 fw-normal">
-              {counts.total} total
-            </Badge>
-          </div>
-          <div className="text-muted">
-            Track and update your assigned work across projects
-          </div>
-        </Col>
-        <Col xs="12" md="auto" className="mt-3 mt-md-0">
-          <div className="d-flex gap-2">
-            <Form.Select
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-              style={{ minWidth: 220 }}
-            >
-              <option value="all">All projects</option>
-              {(projects || []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Form.Select>
-            <Form.Control
-              placeholder="Search title, description, project…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ minWidth: 260 }}
-            />
-            <Button onClick={() => setShowCreate(true)}>New Task</Button>
-          </div>
-        </Col>
-      </Row>
-
-      {/* Counters */}
-      <Row className="mb-4">
-        <Col>
-          <div className="d-flex justify-content-between bg-light p-3 rounded">
-            <div className="text-center">
-              <div className="text-muted small">TO DO</div>
-              <div className="fs-4 fw-bold text-dark">{counts.todo}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-muted small">IN PROGRESS</div>
-              <div className="fs-4 fw-bold text-primary">
-                {counts.in_progress}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-muted small">COMPLETED</div>
-              <div className="fs-4 fw-bold text-success">
-                {counts.Completed}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-muted small">TOTAL</div>
-              <div className="fs-4 fw-bold text-dark">{counts.total}</div>
-            </div>
-          </div>
-        </Col>
-      </Row>
-
-      {/* Kanban */}
-      <Row>
-        {STATUS.map((col) => (
-          <Col md={4} key={col.key} className="mb-4">
-            <div className="d-flex align-items-center justify-content-between mb-2">
-              <h5 className="mb-0">{col.label}</h5>
-              <Badge bg="secondary">{byStatus[col.key]?.length || 0}</Badge>
-            </div>
-
-            {byStatus[col.key]?.map((t) => (
-              <TaskCard key={t.id} task={t} />
-            ))}
-
-            {byStatus[col.key]?.length === 0 && (
-              <Card className="border-0 shadow-sm">
-                <Card.Body className="text-muted text-center py-4">
-                  No tasks here
-                </Card.Body>
-              </Card>
-            )}
-          </Col>
-        ))}
-      </Row>
-
-      <CreateTaskModal />
+            </Form.Group>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowCreate(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => createTask.mutate(newTask)}
+            disabled={creating}
+          >
+            Create Task
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </Container>
   );
 }

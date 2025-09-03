@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Form, Button, Row, Col, Card, Alert } from "react-bootstrap";
 import { supabase } from "../../lib/supabaseClient";
+import { logActivity } from "../../lib/logger"; // ✅ Import logger
 
-const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
+// NOTE: Will use project prop if provided; otherwise it'll fetch dates inline.
+const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
   const [taskForm, setTaskForm] = useState({
     title: "",
     description: "",
@@ -39,7 +41,51 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
     setSuccess(false);
 
     try {
-      // First, create the task
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) throw new Error("No authenticated user found");
+
+      // 🔒 Project/task date validation using STRING compares (YYYY-MM-DD)
+      // 1) Get project start/due dates (from prop if present; otherwise fetch).
+      let projectStartStr = project?.start_date ?? null;
+      let projectDueStr = project?.due_date ?? null;
+
+      if (!projectStartStr && !projectDueStr) {
+        const { data: projRow, error: projErr } = await supabase
+          .from("projects")
+          .select("start_date, due_date")
+          .eq("id", projectId)
+          .single();
+        if (projErr) throw projErr;
+        projectStartStr = projRow?.start_date ?? null;
+        projectDueStr = projRow?.due_date ?? null;
+      }
+
+      // Normalize to YYYY-MM-DD (strip time if any)
+      const normalize = (d) =>
+        typeof d === "string" ? d.split("T")[0] : d ?? null;
+
+      projectStartStr = normalize(projectStartStr);
+      projectDueStr = normalize(projectDueStr);
+
+      const taskStartStr = normalize(taskForm.start_date);
+      const taskDueStr = normalize(taskForm.due_date);
+
+      // 2) Validate ranges (string comparison is safe for ISO dates)
+      if (taskStartStr && taskDueStr && taskStartStr > taskDueStr) {
+        throw new Error("Task start date cannot be later than task due date.");
+      }
+      if (projectStartStr && taskStartStr && taskStartStr < projectStartStr) {
+        throw new Error("Task start date cannot be before project start date.");
+      }
+      if (projectDueStr && taskDueStr && taskDueStr > projectDueStr) {
+        throw new Error("Task due date cannot be after project due date.");
+      }
+
+      // ▶ Create the task
       const { data: taskData, error: taskError } = await supabase
         .from("tasks")
         .insert({
@@ -50,14 +96,42 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
           start_date: taskForm.start_date || null,
           due_date: taskForm.due_date || null,
           project_id: projectId,
-          created_by: (await supabase.auth.getUser()).data.user.id,
+          created_by: user.id,
         })
         .select()
         .single();
 
       if (taskError) throw taskError;
 
-      // Then create assignments for each selected user
+      // ✅ Check any selected assignee has < 3 active tasks
+      for (const userId of selectedAssignees) {
+        const { count: activeTasksCount, error: countError } = await supabase
+          .from("task_assignments")
+          .select("task_id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .in(
+            "task_id",
+            (
+              await supabase
+                .from("tasks")
+                .select("id")
+                .in("status", ["todo", "in_progress"])
+            ).data.map((t) => t.id)
+          );
+
+        if (countError) throw countError;
+
+        if (activeTasksCount >= 3) {
+          throw new Error(
+            `User "${
+              teamMembers.find((m) => m.user_id === userId)?.first_name ||
+              "Unknown"
+            }" already has 3 or more active tasks.`
+          );
+        }
+      }
+
+      // ▶ Create assignments
       if (selectedAssignees.length > 0) {
         const assignments = selectedAssignees.map((userId) => ({
           task_id: taskData.id,
@@ -71,7 +145,14 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
         if (assignmentError) throw assignmentError;
       }
 
-      // Reset form and show success
+      // ▶ Log activity
+      await logActivity({
+        projectId,
+        type: "task_created",
+        details: `Task "${taskData.title}" was created.`,
+      });
+
+      // ▶ Reset
       setTaskForm({
         title: "",
         description: "",
@@ -83,15 +164,32 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
       setSelectedAssignees([]);
       setSuccess(true);
 
-      // Notify parent component
       if (onTaskCreated) onTaskCreated();
-    } catch (error) {
-      console.error("Error creating task:", error.message);
-      setError("Error creating task: " + error.message);
+    } catch (err) {
+      console.error("Error creating task:", err?.message || err);
+      // Friendlier message for date violations
+      if (
+        String(err?.message || "")
+          .toLowerCase()
+          .includes("date") ||
+        String(err?.message || "").includes("task_dates")
+      ) {
+        setError("Task dates must be within the project timeline.");
+      } else {
+        setError("Error creating task: " + (err?.message || "Unknown error"));
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  // Optional min/max constraints for the pickers (only if project provided)
+  const inputMin = project?.start_date
+    ? project.start_date.split("T")[0]
+    : undefined;
+  const inputMax = project?.due_date
+    ? project.due_date.split("T")[0]
+    : undefined;
 
   return (
     <Card className="mb-4">
@@ -165,26 +263,17 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
               style={{ maxHeight: "200px", overflowY: "auto" }}
             >
               {teamMembers.length > 0 ? (
-                teamMembers.map((member) => {
-                  // Safely get user details whether from view or direct table
-                  const user = member.user || member;
-                  const userId = member.user_id || member.id;
-                  const userName =
-                    `${user.first_name || ""} ${user.last_name || ""}`.trim() ||
-                    "Unknown User";
-
-                  return (
-                    <Form.Check
-                      key={userId}
-                      type="checkbox"
-                      id={`assignee-${userId}`}
-                      label={userName}
-                      checked={selectedAssignees.includes(userId)}
-                      onChange={() => handleAssigneeChange(userId)}
-                      className="mb-2"
-                    />
-                  );
-                })
+                teamMembers.map((member) => (
+                  <Form.Check
+                    key={member.user_id}
+                    type="checkbox"
+                    id={`assignee-${member.user_id}`}
+                    label={`${member.first_name} ${member.last_name}`}
+                    checked={selectedAssignees.includes(member.user_id)}
+                    onChange={() => handleAssigneeChange(member.user_id)}
+                    className="mb-2"
+                  />
+                ))
               ) : (
                 <p className="text-muted">No team members available</p>
               )}
@@ -200,6 +289,8 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
                   name="start_date"
                   value={taskForm.start_date}
                   onChange={handleInputChange}
+                  min={inputMin}
+                  max={inputMax}
                 />
               </Form.Group>
             </Col>
@@ -211,6 +302,8 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated }) => {
                   name="due_date"
                   value={taskForm.due_date}
                   onChange={handleInputChange}
+                  min={inputMin}
+                  max={inputMax}
                 />
               </Form.Group>
             </Col>

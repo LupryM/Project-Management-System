@@ -19,6 +19,7 @@ const ProjectDetail = () => {
   const [activeTab, setActiveTab] = useState("overview");
   const [tasksUpdated, setTasksUpdated] = useState(0);
   const [teamMembersUpdated, setTeamMembersUpdated] = useState(0);
+  const [userTaskCounts, setUserTaskCounts] = useState({});
 
   const [projectForm, setProjectForm] = useState({
     name: "",
@@ -41,6 +42,7 @@ const ProjectDetail = () => {
         if (session) {
           await fetchAllUsers();
           await fetchProject();
+          await fetchUserTaskCounts();
         }
       } catch (error) {
         setError(error.message);
@@ -134,6 +136,29 @@ const ProjectDetail = () => {
     }
   };
 
+  const fetchUserTaskCounts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("assignee_id")
+        .eq("project_id", projectId);
+
+      if (error) throw error;
+
+      // Count tasks per user
+      const counts = {};
+      data.forEach(task => {
+        if (task.assignee_id) {
+          counts[task.assignee_id] = (counts[task.assignee_id] || 0) + 1;
+        }
+      });
+
+      setUserTaskCounts(counts);
+    } catch (error) {
+      console.error("Error fetching task counts:", error.message);
+    }
+  };
+
   const handleProjectSubmit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -157,6 +182,7 @@ const ProjectDetail = () => {
 
   const handleTaskUpdated = () => {
     setTasksUpdated((prev) => prev + 1);
+    fetchUserTaskCounts();
   };
 
   const handleTeamMembersUpdated = () => {
@@ -339,6 +365,7 @@ const ProjectDetail = () => {
             projectId={projectId}
             teamMembers={teamMembers}
             onTaskCreated={handleTaskUpdated}
+            userTaskCounts={userTaskCounts}
           />
           <TaskList
             projectId={projectId}

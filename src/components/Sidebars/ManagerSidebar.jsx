@@ -2,13 +2,13 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 
-const AdminSidebar = () => {
+const ManagerSidebar = () => {
   const location = useLocation();
 
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <h3>Admin Portal</h3>
+        <h3>Manager Portal</h3>
       </div>
       <nav className="sidebar-nav">
         <Link to="/" className={location.pathname === "/" ? "active" : ""}>
@@ -16,18 +16,18 @@ const AdminSidebar = () => {
           Dashboard
         </Link>
         <Link
-          to="/A-projects"
+          to="/projects"
           className={location.pathname === "/projects" ? "active" : ""}
         >
           <i className="bi bi-folder me-2"></i>
           Projects
         </Link>
         <Link
-          to="/employees"
-          className={location.pathname === "/employees" ? "active" : ""}
+          to="/Mtasks"
+          className={location.pathname === "/Mtasks" ? "active" : ""}
         >
-          <i className="bi bi-people me-2"></i>
-          User Management
+          <i className="bi bi-folder me-2"></i>
+            Tasks
         </Link>
         <Link
           to="/settings"
@@ -45,4 +45,4 @@ const AdminSidebar = () => {
   );
 };
 
-export default AdminSidebar;
+export default ManagerSidebar;

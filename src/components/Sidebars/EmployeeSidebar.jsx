@@ -20,6 +20,12 @@ const EmployeeSidebar = () => {
         >
           My Tasks
         </Link>
+        <Link
+          to="/my-projects"
+          className={location.pathname === "/my-projects" ? "active" : ""}
+        >
+          My Projects
+        </Link>
         <button onClick={() => supabase.auth.signOut()} className="logout-btn">
           Sign Out
         </button>
