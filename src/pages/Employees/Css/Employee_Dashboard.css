@@ -1,22 +1,74 @@
-/* EmployeeDashboard.css */
 .employee-dashboard {
-  padding: 20px;
   background-color: #f8f9fa;
   min-height: 100vh;
 }
 
-.employee-dashboard .card {
-  border: none;
-  border-radius: 10px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: box-shadow 0.3s ease;
+.stats-card {
+  transition: transform 0.2s ease;
 }
 
-.employee-dashboard .card:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+.stats-card:hover {
+  transform: translateY(-5px);
 }
 
-.employee-dashboard .card-header {
+/* Custom badge styles */
+.badge {
+  font-weight: 500;
+  padding: 0.35em 0.65em;
+}
+
+/* Status badge styles */
+.badge.bg-secondary {
+  background-color: #6c757d !important;
+}
+
+.badge.bg-primary {
+  background-color: #0d6efd !important;
+}
+
+.badge.bg-warning {
+  background-color: #ffc107 !important;
+  color: #000 !important;
+}
+
+.badge.bg-success {
+  background-color: #198754 !important;
+}
+
+.badge.bg-danger {
+  background-color: #dc3545 !important;
+}
+
+/* Progress bar customization */
+.progress {
+  height: 8px;
+  border-radius: 4px;
+}
+
+/* Card customization */
+.card {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.card-header {
   background-color: white;
-  border-bottom: 1px solid #e9ecef;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  font-weight: 600;
+}
+
+/* List group items */
+.list-group-item {
+  transition: background-color 0.2s ease;
+}
+
+.list-group-item:hover {
+  background-color: #f8f9fa;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .employee-dashboard {
+    padding: 1rem;
+  }
 }

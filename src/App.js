@@ -28,6 +28,9 @@ import ManagerDashboard from "./pages/Manager/ManagerDashboard";
 import ManagerTasks from "./pages/Manager/ManagerTasks";
 import EmployeeProjects from "./pages/Employees/EmployeeProjects";
 import AdminProjectOverview from "./pages/Admin/AdminProjectOverview";
+import ProjectPortfolio from "./pages/Executive/ProjectPortfolio";
+import ProjectReports from "./pages/Executive/ProjectReports";
+import EmployeeAnalytics from "./pages/Executive/EmployeeAnalytics";
 
 const queryClient = new QueryClient();
 
@@ -121,6 +124,9 @@ function App() {
                   <Route path="/reports" element={<ExecutiveReports />} />
                   <Route path="*" element={<Navigate to="/" />} />
                   <Route path="/LogChanges" element={<LogChanges />} />
+                  <Route path="/T-reports" element={<ProjectPortfolio />} />
+                  <Route path="/P-reports" element={<ProjectReports />} />
+                  <Route path="/E-reports" element={<EmployeeAnalytics />} />
                 </Routes>
               </ExecutiveLayout>
             )}

@@ -12,23 +12,84 @@ import {
   Spinner,
   ListGroup,
   Alert,
+  Nav,
+  Tab,
 } from "react-bootstrap";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../../lib/supabaseClient";
 import { logActivity } from "../../lib/logger";
+import {
+  BsSearch,
+  BsPlusCircle,
+  BsThreeDotsVertical,
+  BsCalendar,
+  BsFolder,
+  BsCheckCircle,
+  BsCircle,
+  BsClockHistory,
+  BsExclamationCircle,
+  BsExclamationTriangle,
+  BsExclamationDiamond,
+  BsExclamationOctagon,
+  BsChat,
+  BsTrash,
+  BsPencil,
+  BsArrowRepeat,
+  BsFilter,
+  BsPersonPlus,
+  BsSortDown,
+  BsKanban,
+  BsListTask,
+  BsGrid3X3,
+} from "react-icons/bs";
 
 // ----- Helpers & Mappings -----
 const STATUS = [
-  { key: "todo", label: "To Do" },
-  { key: "in_progress", label: "In Progress" },
-  { key: "Completed", label: "Completed" },
+  {
+    key: "todo",
+    label: "To Do",
+    icon: <BsCircle className="me-1" />,
+    color: "secondary",
+  },
+  {
+    key: "in_progress",
+    label: "In Progress",
+    icon: <BsClockHistory className="me-1" />,
+    color: "primary",
+  },
+  {
+    key: "Completed",
+    label: "Completed",
+    icon: <BsCheckCircle className="me-1" />,
+    color: "success",
+  },
 ];
 
 const PRIORITY = [
-  { value: 1, label: "critical", badge: "danger" },
-  { value: 2, label: "high", badge: "warning" },
-  { value: 3, label: "medium", badge: "primary" },
-  { value: 4, label: "low", badge: "secondary" },
+  {
+    value: 1,
+    label: "critical",
+    badge: "danger",
+    icon: <BsExclamationOctagon className="me-1" />,
+  },
+  {
+    value: 2,
+    label: "high",
+    badge: "warning",
+    icon: <BsExclamationDiamond className="me-1" />,
+  },
+  {
+    value: 3,
+    label: "medium",
+    badge: "primary",
+    icon: <BsExclamationTriangle className="me-1" />,
+  },
+  {
+    value: 4,
+    label: "low",
+    badge: "secondary",
+    icon: <BsExclamationCircle className="me-1" />,
+  },
 ];
 
 const getPriorityMeta = (valOrLabel) => {
@@ -152,19 +213,33 @@ const TaskComments = ({ taskId, currentUser }) => {
   if (loading) return <Spinner animation="border" size="sm" />;
 
   return (
-    <div className="mt-2">
+    <div className="mt-3">
       {error && <Alert variant="danger">{error}</Alert>}
-      <ListGroup className="mb-2">
+      <div className="d-flex align-items-center mb-2">
+        <BsChat className="me-1" />
+        <h6 className="mb-0">Comments</h6>
+      </div>
+
+      <ListGroup
+        className="mb-2"
+        style={{ maxHeight: "200px", overflowY: "auto" }}
+      >
         {comments.length === 0 && (
-          <ListGroup.Item>No comments yet</ListGroup.Item>
+          <ListGroup.Item className="text-muted text-center py-3">
+            No comments yet
+          </ListGroup.Item>
         )}
         {comments.map((c) => (
-          <ListGroup.Item key={c.comment_id}>
-            <strong>{c.profiles?.first_name || "User"}:</strong>{" "}
-            {c.comment_text}{" "}
-            <small className="text-muted">
-              ({new Date(c.created_at).toLocaleString()})
-            </small>
+          <ListGroup.Item key={c.comment_id} className="py-2">
+            <div className="d-flex justify-content-between align-items-start">
+              <strong className="text-primary">
+                {c.profiles?.first_name || "User"}
+              </strong>
+              <small className="text-muted">
+                {new Date(c.created_at).toLocaleString()}
+              </small>
+            </div>
+            <div className="mt-1">{c.comment_text}</div>
           </ListGroup.Item>
         ))}
       </ListGroup>
@@ -177,8 +252,8 @@ const TaskComments = ({ taskId, currentUser }) => {
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
           />
-          <Button type="submit" size="sm">
-            Add
+          <Button type="submit" size="sm" variant="outline-primary">
+            <BsPlusCircle />
           </Button>
         </Form.Group>
       </Form>
@@ -193,6 +268,8 @@ export default function EmployeeTaskView() {
   const [projectFilter, setProjectFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [viewMode, setViewMode] = useState("kanban"); // 'kanban' or 'list'
+  const [sortBy, setSortBy] = useState("due_date");
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -346,7 +423,7 @@ export default function EmployeeTaskView() {
   // Derived
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return tasks
+    let filteredTasks = tasks
       .filter((t) =>
         projectFilter === "all"
           ? true
@@ -359,7 +436,21 @@ export default function EmployeeTaskView() {
             (t.project?.name || "").toLowerCase().includes(s)
           : true
       );
-  }, [tasks, search, projectFilter]);
+
+    // Sort tasks
+    filteredTasks.sort((a, b) => {
+      if (sortBy === "due_date") {
+        return new Date(a.due_date || 0) - new Date(b.due_date || 0);
+      } else if (sortBy === "priority") {
+        return a.priority - b.priority;
+      } else if (sortBy === "title") {
+        return (a.title || "").localeCompare(b.title || "");
+      }
+      return 0;
+    });
+
+    return filteredTasks;
+  }, [tasks, search, projectFilter, sortBy]);
 
   const byStatus = useMemo(() => {
     const map = { todo: [], in_progress: [], Completed: [] };
@@ -367,10 +458,6 @@ export default function EmployeeTaskView() {
       const key = STATUS.some((s) => s.key === t.status) ? t.status : "todo";
       map[key].push(t);
     }
-    for (const k of Object.keys(map))
-      map[k].sort(
-        (a, b) => new Date(a.due_date || 0) - new Date(b.due_date || 0)
-      );
     return map;
   }, [filtered]);
 
@@ -386,15 +473,16 @@ export default function EmployeeTaskView() {
     const meta = STATUS.find((s) => s.key === status) || {
       key: "todo",
       label: "To Do",
+      icon: <BsCircle className="me-1" />,
+      color: "secondary",
     };
-    const variant =
-      meta.key === "Completed"
-        ? "success"
-        : meta.key === "in_progress"
-        ? "primary"
-        : "secondary";
     return (
-      <Badge pill bg={variant} className="fw-normal">
+      <Badge
+        pill
+        bg={meta.color}
+        className="fw-normal d-flex align-items-center"
+      >
+        {meta.icon}
         {meta.label}
       </Badge>
     );
@@ -403,31 +491,93 @@ export default function EmployeeTaskView() {
   const PriorityBadge = ({ priority }) => {
     const meta = getPriorityMeta(priority);
     return (
-      <Badge pill bg={meta.badge} className="text-uppercase fw-normal">
+      <Badge
+        pill
+        bg={meta.badge}
+        className="text-uppercase fw-normal d-flex align-items-center"
+      >
+        {meta.icon}
         {meta.label}
       </Badge>
     );
   };
 
   const TaskCard = ({ task }) => (
-    <Card className="border-0 shadow-sm mb-3">
+    <Card className="border-0 shadow-sm mb-3 task-card">
       <Card.Body>
         <div className="d-flex justify-content-between align-items-start">
-          <div className="me-3">
-            <h5 className="mb-1">{task.title}</h5>
-            <div className="text-muted small mb-2">
-              <i className="bi bi-folder me-1" />
-              {task.project?.name || "—"}
-              <span className="mx-2">•</span>
-              <i className="bi bi-calendar me-1" />
-              Due: {fmtDate(task.due_date)}
+          <div className="me-3 flex-grow-1">
+            <div className="d-flex justify-content-between align-items-start mb-2">
+              <h6 className="mb-0 task-title">{task.title}</h6>
+              <Dropdown align="end">
+                <Dropdown.Toggle variant="light" size="sm" className="p-1">
+                  <BsThreeDotsVertical />
+                </Dropdown.Toggle>
+                <Dropdown.Menu>
+                  <Dropdown.Item
+                    onClick={() =>
+                      updateStatus.mutate({
+                        id: task.id,
+                        status: "todo",
+                        taskTitle: task.title,
+                        projectId: task.project_id,
+                      })
+                    }
+                  >
+                    <BsCircle className="me-2" /> Mark To Do
+                  </Dropdown.Item>
+                  <Dropdown.Item
+                    onClick={() =>
+                      updateStatus.mutate({
+                        id: task.id,
+                        status: "in_progress",
+                        taskTitle: task.title,
+                        projectId: task.project_id,
+                      })
+                    }
+                  >
+                    <BsClockHistory className="me-2" /> Mark In Progress
+                  </Dropdown.Item>
+                  <Dropdown.Item
+                    onClick={() =>
+                      updateStatus.mutate({
+                        id: task.id,
+                        status: "Completed",
+                        taskTitle: task.title,
+                        projectId: task.project_id,
+                      })
+                    }
+                  >
+                    <BsCheckCircle className="me-2" /> Mark Completed
+                  </Dropdown.Item>
+                  <Dropdown.Divider />
+                  <Dropdown.Item
+                    className="text-danger"
+                    onClick={() => deleteTask.mutate(task.id)}
+                  >
+                    <BsTrash className="me-2" /> Delete
+                  </Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown>
             </div>
+
+            <div className="d-flex align-items-center text-muted small mb-2">
+              <BsFolder className="me-1" />
+              <span className="me-2">{task.project?.name || "—"}</span>
+              <BsCalendar className="me-1" />
+              <span>Due: {fmtDate(task.due_date)}</span>
+            </div>
+
             {task.description && (
-              <p className="mb-2 text-muted" style={{ whiteSpace: "pre-wrap" }}>
+              <p
+                className="mb-2 text-muted task-description"
+                style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}
+              >
                 {task.description}
               </p>
             )}
-            <div className="d-flex gap-2 align-items-center">
+
+            <div className="d-flex gap-2 align-items-center mb-2">
               <PriorityBadge priority={task.priority} />
               <StatusBadge status={task.status} />
             </div>
@@ -435,181 +585,324 @@ export default function EmployeeTaskView() {
             {/* --- COMMENTS --- */}
             {user && <TaskComments taskId={task.id} currentUser={user} />}
           </div>
-
-          <Dropdown align="end">
-            <Dropdown.Toggle variant="secondary" size="sm">
-              ⋮
-            </Dropdown.Toggle>
-            <Dropdown.Menu>
-              <Dropdown.Item
-                onClick={() =>
-                  updateStatus.mutate({
-                    id: task.id,
-                    status: "todo",
-                    taskTitle: task.title,
-                    projectId: task.project_id,
-                  })
-                }
-              >
-                Mark To Do
-              </Dropdown.Item>
-              <Dropdown.Item
-                onClick={() =>
-                  updateStatus.mutate({
-                    id: task.id,
-                    status: "in_progress",
-                    taskTitle: task.title,
-                    projectId: task.project_id,
-                  })
-                }
-              >
-                Mark In Progress
-              </Dropdown.Item>
-              <Dropdown.Item
-                onClick={() =>
-                  updateStatus.mutate({
-                    id: task.id,
-                    status: "Completed",
-                    taskTitle: task.title,
-                    projectId: task.project_id,
-                  })
-                }
-              >
-                Mark Completed
-              </Dropdown.Item>
-              <Dropdown.Divider />
-              <Dropdown.Item
-                className="text-danger"
-                onClick={() => deleteTask.mutate(task.id)}
-              >
-                Delete
-              </Dropdown.Item>
-            </Dropdown.Menu>
-          </Dropdown>
         </div>
       </Card.Body>
     </Card>
   );
 
-  if (loadingUser || loadingTasks || loadingProjects)
-    return <Spinner animation="border" />;
+  const TaskListItem = ({ task }) => (
+    <div className="border-bottom pb-3 mb-3">
+      <div className="d-flex justify-content-between align-items-start">
+        <div className="flex-grow-1">
+          <div className="d-flex align-items-center mb-1">
+            <h6 className="mb-0 me-2">{task.title}</h6>
+            <PriorityBadge priority={task.priority} />
+          </div>
+
+          <div className="d-flex align-items-center text-muted small mb-1">
+            <BsFolder className="me-1" />
+            <span className="me-2">{task.project?.name || "—"}</span>
+            <BsCalendar className="me-1" />
+            <span>Due: {fmtDate(task.due_date)}</span>
+          </div>
+
+          {task.description && (
+            <p
+              className="mb-2 text-muted"
+              style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}
+            >
+              {task.description}
+            </p>
+          )}
+
+          <div className="d-flex gap-2 align-items-center">
+            <StatusBadge status={task.status} />
+            <Button
+              size="sm"
+              variant="outline-primary"
+              onClick={() => {
+                const nextStatus =
+                  task.status === "todo"
+                    ? "in_progress"
+                    : task.status === "in_progress"
+                    ? "Completed"
+                    : "todo";
+
+                updateStatus.mutate({
+                  id: task.id,
+                  status: nextStatus,
+                  taskTitle: task.title,
+                  projectId: task.project_id,
+                });
+              }}
+            >
+              <BsArrowRepeat className="me-1" />
+              Update Status
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline-danger"
+              onClick={() => deleteTask.mutate(task.id)}
+            >
+              <BsTrash />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (loadingUser || loadingTasks || loadingProjects) {
+    return (
+      <Container
+        fluid
+        className="d-flex justify-content-center align-items-center"
+        style={{ height: "50vh" }}
+      >
+        <div className="text-center">
+          <Spinner animation="border" role="status" className="mb-3" />
+          <p>Loading your tasks...</p>
+        </div>
+      </Container>
+    );
+  }
 
   return (
-    <Container fluid>
-      <Row className="mb-3">
-        <Col md={6}>
-          <Form.Control
-            placeholder="Search tasks..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </Col>
-        <Col md={4}>
-          <Form.Select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-          >
-            <option value="all">All Projects</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Form.Select>
-        </Col>
-        <Col md={2} className="text-end">
-          <Button onClick={() => setShowCreate(true)}>+ New Task</Button>
-        </Col>
-      </Row>
+    <Container fluid className="py-4">
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h2 className="mb-0">My Tasks</h2>
+      </div>
 
-      <Row>
-        {STATUS.map((s) => (
-          <Col key={s.key} md={4}>
-            <h6>
-              {s.label} ({byStatus[s.key].length})
-            </h6>
-            {byStatus[s.key].map((t) => (
-              <TaskCard key={t.id} task={t} />
-            ))}
-          </Col>
-        ))}
-      </Row>
+      <Card className="mb-4">
+        <Card.Body>
+          <Row className="g-3">
+            <Col md={5}>
+              <div className="position-relative">
+                <BsSearch className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" />
+                <Form.Control
+                  placeholder="Search tasks..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="ps-5"
+                />
+              </div>
+            </Col>
+            <Col md={3}>
+              <div className="position-relative">
+                <BsFilter className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" />
+                <Form.Select
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  className="ps-5"
+                >
+                  <option value="all">All Projects</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Form.Select>
+              </div>
+            </Col>
+            <Col md={2}>
+              <div className="position-relative">
+                <BsSortDown className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" />
+                <Form.Select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="ps-5"
+                >
+                  <option value="due_date">Due Date</option>
+                  <option value="priority">Priority</option>
+                  <option value="title">Title</option>
+                </Form.Select>
+              </div>
+            </Col>
+            <Col md={2}>
+              <div className="btn-group w-100">
+                <Button
+                  variant={
+                    viewMode === "kanban" ? "primary" : "outline-primary"
+                  }
+                  size="sm"
+                  onClick={() => setViewMode("kanban")}
+                >
+                  <BsKanban className="me-1" /> Board
+                </Button>
+                <Button
+                  variant={viewMode === "list" ? "primary" : "outline-primary"}
+                  size="sm"
+                  onClick={() => setViewMode("list")}
+                >
+                  <BsListTask className="me-1" /> List
+                </Button>
+              </div>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
 
-      <Modal show={showCreate} onHide={() => setShowCreate(false)}>
+      {viewMode === "kanban" ? (
+        <Row>
+          {STATUS.map((s) => (
+            <Col key={s.key} lg={4} md={6} className="mb-4">
+              <Card className="h-100 status-column">
+                <Card.Header
+                  className={`bg-${s.color} bg-opacity-10 d-flex justify-content-between align-items-center`}
+                >
+                  <h6 className="mb-0 d-flex align-items-center">
+                    {s.icon}
+                    {s.label}{" "}
+                    <Badge bg="light" text={s.color} className="ms-2">
+                      {byStatus[s.key].length}
+                    </Badge>
+                  </h6>
+                </Card.Header>
+                <Card.Body
+                  className="p-3"
+                  style={{
+                    minHeight: "400px",
+                    maxHeight: "70vh",
+                    overflowY: "auto",
+                  }}
+                >
+                  {byStatus[s.key].map((t) => (
+                    <TaskCard key={t.id} task={t} />
+                  ))}
+                  {byStatus[s.key].length === 0 && (
+                    <div className="text-center text-muted py-4">
+                      <div className="mb-2">
+                        {s.key === "todo" ? (
+                          <BsCircle size={24} />
+                        ) : s.key === "in_progress" ? (
+                          <BsClockHistory size={24} />
+                        ) : (
+                          <BsCheckCircle size={24} />
+                        )}
+                      </div>
+                      <p className="mb-0">No {s.label.toLowerCase()} tasks</p>
+                    </div>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      ) : (
+        <Card>
+          <Card.Header className="d-flex justify-content-between align-items-center">
+            <h6 className="mb-0">All Tasks ({filtered.length})</h6>
+          </Card.Header>
+          <Card.Body>
+            {filtered.map((t) => (
+              <TaskListItem key={t.id} task={t} />
+            ))}
+            {filtered.length === 0 && (
+              <div className="text-center text-muted py-5">
+                <BsListTask size={32} className="mb-3" />
+                <h5>No tasks found</h5>
+                <p>Try changing your filters or create a new task</p>
+              </div>
+            )}
+          </Card.Body>
+        </Card>
+      )}
+
+      <Modal show={showCreate} onHide={() => setShowCreate(false)} size="lg">
         <Modal.Header closeButton>
-          <Modal.Title>Create Task</Modal.Title>
+          <Modal.Title className="d-flex align-items-center">
+            <BsPlusCircle className="me-2" /> Create New Task
+          </Modal.Title>
         </Modal.Header>
         <Modal.Body>
           <Form>
-            <Form.Group className="mb-3">
-              <Form.Label>Title</Form.Label>
-              <Form.Control
-                value={newTask.title}
-                onChange={(e) =>
-                  setNewTask({ ...newTask, title: e.target.value })
-                }
-              />
-            </Form.Group>
+            <Row>
+              <Col md={8}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Title *</Form.Label>
+                  <Form.Control
+                    value={newTask.title}
+                    onChange={(e) =>
+                      setNewTask({ ...newTask, title: e.target.value })
+                    }
+                    placeholder="What needs to be done?"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Priority</Form.Label>
+                  <Form.Select
+                    value={newTask.priority}
+                    onChange={(e) =>
+                      setNewTask({ ...newTask, priority: e.target.value })
+                    }
+                  >
+                    {PRIORITY.map((p) => (
+                      <option key={p.value} value={p.value}>
+                        {p.icon} {p.label}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+            </Row>
 
             <Form.Group className="mb-3">
               <Form.Label>Description</Form.Label>
               <Form.Control
                 as="textarea"
+                rows={3}
                 value={newTask.description}
                 onChange={(e) =>
                   setNewTask({ ...newTask, description: e.target.value })
                 }
+                placeholder="Add details about this task..."
               />
             </Form.Group>
 
-            <Form.Group className="mb-3">
-              <Form.Label>Project</Form.Label>
-              <Form.Select
-                value={newTask.project_id}
-                onChange={(e) =>
-                  setNewTask({ ...newTask, project_id: e.target.value })
-                }
-              >
-                <option value="">Select project</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Form.Select>
-            </Form.Group>
-
-            <Form.Group className="mb-3">
-              <Form.Label>Priority</Form.Label>
-              <Form.Select
-                value={newTask.priority}
-                onChange={(e) =>
-                  setNewTask({ ...newTask, priority: e.target.value })
-                }
-              >
-                {PRIORITY.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </Form.Select>
-            </Form.Group>
-
-            <Form.Group className="mb-3">
-              <Form.Label>Due Date</Form.Label>
-              <Form.Control
-                type="date"
-                value={newTask.due_date}
-                onChange={(e) =>
-                  setNewTask({ ...newTask, due_date: e.target.value })
-                }
-              />
-            </Form.Group>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Project</Form.Label>
+                  <Form.Select
+                    value={newTask.project_id}
+                    onChange={(e) =>
+                      setNewTask({ ...newTask, project_id: e.target.value })
+                    }
+                  >
+                    <option value="">Select project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Due Date</Form.Label>
+                  <Form.Control
+                    type="date"
+                    value={newTask.due_date}
+                    onChange={(e) =>
+                      setNewTask({ ...newTask, due_date: e.target.value })
+                    }
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
 
             <Form.Group className="mb-3">
               <Form.Check
                 type="checkbox"
-                label="Assign to me"
+                label={
+                  <span className="d-flex align-items-center">
+                    <BsPersonPlus className="me-2" /> Assign to me
+                  </span>
+                }
                 checked={newTask.assignToSelf}
                 onChange={(e) =>
                   setNewTask({ ...newTask, assignToSelf: e.target.checked })
@@ -619,15 +912,28 @@ export default function EmployeeTaskView() {
           </Form>
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowCreate(false)}>
+          <Button
+            variant="outline-secondary"
+            onClick={() => setShowCreate(false)}
+          >
             Cancel
           </Button>
           <Button
             variant="primary"
             onClick={() => createTask.mutate(newTask)}
-            disabled={creating}
+            disabled={creating || !newTask.title.trim()}
+            className="d-flex align-items-center"
           >
-            Create Task
+            {creating ? (
+              <>
+                <Spinner animation="border" size="sm" className="me-2" />{" "}
+                Creating...
+              </>
+            ) : (
+              <>
+                <BsPlusCircle className="me-2" /> Create Task
+              </>
+            )}
           </Button>
         </Modal.Footer>
       </Modal>

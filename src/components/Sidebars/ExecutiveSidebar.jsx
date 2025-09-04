@@ -21,11 +21,29 @@ const ExecutiveSidebar = () => {
           to="/reports"
           className={location.pathname === "/reports" ? "active" : ""}
         >
-          Reports
+          Weekly Reports
+        </Link>
+        <Link
+          to="/T-reports"
+          className={location.pathname === "/T-reports" ? "active" : ""}
+        >
+          Project Portfolio
+        </Link>
+        <Link
+          to="/P-reports"
+          className={location.pathname === "/P-reports" ? "active" : ""}
+        >
+          Task Reports
+        </Link>
+        <Link
+          to="/E-reports"
+          className={location.pathname === "/E-reports" ? "active" : ""}
+        >
+          Employee Analytics
         </Link>
         <Link
           to="/LogChanges"
-          className={location.pathname === "/reports" ? "active" : ""}
+          className={location.pathname === "/LogChanges" ? "active" : ""}
         >
           Log Changes
         </Link>

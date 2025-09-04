@@ -27,12 +27,14 @@ const TaskComments = ({ taskId, currentUser }) => {
     setLoading(true);
     const { data, error } = await supabase
       .from("task_comments")
-      .select(`
+      .select(
+        `
         comment_id,
         comment_text,
         created_at,
         profiles:user_id (first_name, last_name)
-      `)
+      `
+      )
       .eq("task_id", taskId)
       .order("created_at", { ascending: true });
 
@@ -65,21 +67,28 @@ const TaskComments = ({ taskId, currentUser }) => {
   };
 
   useEffect(() => {
-    fetchComments();
+    if (taskId && currentUser) {
+      fetchComments();
 
-    const subscription = supabase
-      .channel(`comments-task-${taskId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "task_comments", filter: `task_id=eq.${taskId}` },
-        (payload) => {
-          setComments((prev) => [...prev, payload.new]);
-        }
-      )
-      .subscribe();
+      const subscription = supabase
+        .channel(`comments-task-${taskId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "task_comments",
+            filter: `task_id=eq.${taskId}`,
+          },
+          (payload) => {
+            setComments((prev) => [...prev, payload.new]);
+          }
+        )
+        .subscribe();
 
-    return () => supabase.removeChannel(subscription);
-  }, [taskId]);
+      return () => supabase.removeChannel(subscription);
+    }
+  }, [taskId, currentUser]);
 
   if (loading) return <Spinner animation="border" size="sm" />;
 
@@ -87,10 +96,13 @@ const TaskComments = ({ taskId, currentUser }) => {
     <div className="mt-2">
       {error && <Alert variant="danger">{error}</Alert>}
       <ListGroup className="mb-2">
-        {comments.length === 0 && <ListGroup.Item>No comments yet</ListGroup.Item>}
+        {comments.length === 0 && (
+          <ListGroup.Item>No comments yet</ListGroup.Item>
+        )}
         {comments.map((c) => (
           <ListGroup.Item key={c.comment_id}>
-            <strong>{c.profiles?.first_name || "User"}:</strong> {c.comment_text}{" "}
+            <strong>{c.profiles?.first_name || "User"}:</strong>{" "}
+            {c.comment_text}{" "}
             <small className="text-muted">
               ({new Date(c.created_at).toLocaleString()})
             </small>
@@ -130,28 +142,74 @@ const ManagerTasks = () => {
   const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
-    fetchCurrentUser();
-    fetchProjects();
-    fetchTasks();
+    const initializeData = async () => {
+      await fetchCurrentUser();
+    };
+    initializeData();
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchProjects();
+      fetchTasks();
+    }
+  }, [currentUser]);
 
   const fetchCurrentUser = async () => {
     try {
-      const { data: { user }, error } = await supabase.auth.getUser();
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
       if (error) throw error;
       setCurrentUser(user);
     } catch (err) {
       console.error("Error fetching current user:", err.message);
+      setError("Error loading user: " + err.message);
+      setLoading(false);
     }
   };
 
   const fetchProjects = async () => {
     try {
-      const { data, error } = await supabase
+      // First get all projects where current user is manager
+      const { data: managedProjects, error: projectsError } = await supabase
         .from("projects")
-        .select("id, name");
-      if (error) throw error;
-      setProjects(data || []);
+        .select("id, name")
+        .eq("manager_id", currentUser.id);
+
+      if (projectsError) throw projectsError;
+
+      // Then get all projects where current user is team member
+      const { data: teamProjects, error: teamsError } = await supabase
+        .from("teams")
+        .select(
+          `
+          id,
+          team_members!inner(user_id),
+          projects!inner(id, name)
+        `
+        )
+        .eq("team_members.user_id", currentUser.id);
+
+      if (teamsError) throw teamsError;
+
+      // Combine both lists of projects
+      const allProjects = [...(managedProjects || [])];
+
+      if (teamProjects && teamProjects.length > 0) {
+        teamProjects.forEach((team) => {
+          if (team.projects && team.projects.length > 0) {
+            team.projects.forEach((project) => {
+              if (!allProjects.some((p) => p.id === project.id)) {
+                allProjects.push({ id: project.id, name: project.name });
+              }
+            });
+          }
+        });
+      }
+
+      setProjects(allProjects);
     } catch (err) {
       console.error("Error fetching projects:", err.message);
       setError("Error loading projects: " + err.message);
@@ -162,20 +220,73 @@ const ManagerTasks = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Use the exact same query structure as TaskList
+
+      // First get project IDs where current user is manager
+      const { data: managedProjects, error: projectsError } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("manager_id", currentUser.id);
+
+      if (projectsError) throw projectsError;
+
+      // Then get project IDs where current user is team member
+      const { data: teamProjects, error: teamsError } = await supabase
+        .from("teams")
+        .select(
+          `
+          id,
+          team_members!inner(user_id),
+          projects!inner(id)
+        `
+        )
+        .eq("team_members.user_id", currentUser.id);
+
+      if (teamsError) throw teamsError;
+
+      // Combine project IDs
+      const projectIds = [];
+
+      if (managedProjects && managedProjects.length > 0) {
+        managedProjects.forEach((project) => projectIds.push(project.id));
+      }
+
+      if (teamProjects && teamProjects.length > 0) {
+        teamProjects.forEach((team) => {
+          if (team.projects && team.projects.length > 0) {
+            team.projects.forEach((project) => {
+              if (!projectIds.includes(project.id)) {
+                projectIds.push(project.id);
+              }
+            });
+          }
+        });
+      }
+
+      // If user has no projects, set empty tasks and return
+      if (projectIds.length === 0) {
+        setTasks([]);
+        setFilteredTasks([]);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch tasks from the user's projects
       const { data, error } = await supabase
         .from("tasks")
-        .select(`
+        .select(
+          `
           *,
           assignments:task_assignments(
             user:profiles(id, first_name, last_name)
           ),
           project:projects(id, name)
-        `)
+        `
+        )
+        .in("project_id", projectIds)
         .order("due_date", { ascending: true });
-        
+
       if (error) throw error;
+
       setTasks(data || []);
       setFilteredTasks(data || []);
     } catch (err) {
@@ -224,20 +335,24 @@ const ManagerTasks = () => {
   // Helper function to get assigned users (same as in TaskList)
   const getAssignedUsers = (task) => {
     if (!task.assignments || task.assignments.length === 0) return "Unassigned";
-    
-    return task.assignments
-      .filter((assignment) => assignment.user !== null)
-      .map((assignment) => 
-        `${assignment.user.first_name || ""} ${assignment.user.last_name || ""}`.trim()
-      )
-      .filter(name => name) // Remove empty strings
-      .join(", ") || "Unassigned";
+
+    return (
+      task.assignments
+        .filter((assignment) => assignment.user !== null)
+        .map((assignment) =>
+          `${assignment.user.first_name || ""} ${
+            assignment.user.last_name || ""
+          }`.trim()
+        )
+        .filter((name) => name) // Remove empty strings
+        .join(", ") || "Unassigned"
+    );
   };
 
   // Calculate stats for dashboard
   const taskStats = {
     total: tasks.length,
-    completed: tasks.filter((t) => t.status === "completed").length,
+    Completed: tasks.filter((t) => t.status === "Completed").length,
     inProgress: tasks.filter((t) => t.status === "in_progress").length,
     todo: tasks.filter((t) => t.status === "todo").length,
     critical: tasks.filter((t) => t.priority === 1).length,
@@ -292,7 +407,7 @@ const ManagerTasks = () => {
         <Col md={2}>
           <Card className="text-center border-0 bg-light">
             <Card.Body className="py-3">
-              <h4 className="mb-0 text-success">{taskStats.completed}</h4>
+              <h4 className="mb-0 text-success">{taskStats.Completed}</h4>
               <small>Completed</small>
             </Card.Body>
           </Card>
@@ -328,7 +443,7 @@ const ManagerTasks = () => {
             <Card.Body className="py-3">
               <h4 className="mb-0 text-primary">
                 {taskStats.total > 0
-                  ? Math.round((taskStats.completed / taskStats.total) * 100)
+                  ? Math.round((taskStats.Completed / taskStats.total) * 100)
                   : 0}
                 %
               </h4>
@@ -389,7 +504,7 @@ const ManagerTasks = () => {
                   <option value="all">All Statuses</option>
                   <option value="todo">To Do</option>
                   <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
+                  <option value="Completed">Completed</option>
                 </Form.Select>
               </Form.Group>
             </Col>
@@ -425,11 +540,11 @@ const ManagerTasks = () => {
             <div className="d-flex justify-content-between mb-1">
               <span>Project Completion</span>
               <span>
-                {Math.round((taskStats.completed / taskStats.total) * 100)}%
+                {Math.round((taskStats.Completed / taskStats.total) * 100)}%
               </span>
             </div>
             <ProgressBar
-              now={(taskStats.completed / taskStats.total) * 100}
+              now={(taskStats.Completed / taskStats.total) * 100}
               variant="success"
             />
           </Card.Body>
@@ -472,7 +587,12 @@ const ManagerTasks = () => {
                   </div>
                 ) : (
                   tasksInGroup.map((task) => (
-                    <TaskCard key={task.id} task={task} getAssignedUsers={getAssignedUsers} currentUser={currentUser} />
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      getAssignedUsers={getAssignedUsers}
+                      currentUser={currentUser}
+                    />
                   ))
                 )}
               </Card.Body>
@@ -537,7 +657,7 @@ const TaskCard = ({ task, getAssignedUsers, currentUser }) => {
 
   const getStatusVariant = (status) => {
     switch (status) {
-      case "completed":
+      case "Completed":
         return "success";
       case "in_progress":
         return "primary";
@@ -550,7 +670,7 @@ const TaskCard = ({ task, getAssignedUsers, currentUser }) => {
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case "completed":
+      case "Completed":
         return "bi-check-circle-fill";
       case "in_progress":
         return "bi-arrow-repeat";
@@ -568,7 +688,7 @@ const TaskCard = ({ task, getAssignedUsers, currentUser }) => {
 
   const isOverdue = (dueDate) => {
     if (!dueDate) return false;
-    return new Date(dueDate) < new Date() && task.status !== "completed";
+    return new Date(dueDate) < new Date() && task.status !== "Completed";
   };
 
   return (
@@ -638,9 +758,11 @@ const TaskCard = ({ task, getAssignedUsers, currentUser }) => {
             <Col md={8}>
               <h6>Description</h6>
               <p>{task.description || "No description provided"}</p>
-              
+
               {/* Comments Section */}
-              {currentUser && <TaskComments taskId={task.id} currentUser={currentUser} />}
+              {currentUser && (
+                <TaskComments taskId={task.id} currentUser={currentUser} />
+              )}
             </Col>
             <Col md={4}>
               <h6>Details</h6>
