@@ -30,6 +30,12 @@ const AdminSidebar = () => {
           User Management
         </Link>
         <Link
+          to="/LogChanges"
+          className={location.pathname === "/LogChanges" ? "active" : ""}
+        >
+          Log Changes
+        </Link>
+        <Link
           to="/settings"
           className={location.pathname === "/settings" ? "active" : ""}
         >

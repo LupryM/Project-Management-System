@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Form, Button, Row, Col, Card, Alert } from "react-bootstrap";
 import { supabase } from "../../lib/supabaseClient";
-import { logActivity } from "../../lib/logger"; // ✅ Import logger
+import { logActivity } from "../../lib/logger";
 
 // NOTE: Will use project prop if provided; otherwise it'll fetch dates inline.
 const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
@@ -17,6 +17,110 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Get current user on component mount
+  React.useEffect(() => {
+    const getCurrentUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getCurrentUser();
+  }, []);
+
+  // NEW: Function to send notifications to assigned users
+  const notifyAssignedUsers = async (
+    taskId,
+    taskTitle,
+    assigneeIds,
+    projectName = null
+  ) => {
+    try {
+      if (!currentUser || !assigneeIds.length) return;
+
+      // Get project name if not provided
+      let projectNameToUse = projectName;
+      if (!projectNameToUse && projectId) {
+        const { data: projectData, error } = await supabase
+          .from("projects")
+          .select("name")
+          .eq("id", projectId)
+          .single();
+
+        if (!error && projectData) {
+          projectNameToUse = projectData.name;
+        }
+      }
+
+      // Create notifications for each assigned user
+      const notifications = assigneeIds.map((userId) => ({
+        type: "task_assigned",
+        user_id: userId,
+        actor_id: currentUser.id,
+        task_id: taskId,
+        project_id: projectId,
+        message: `You have been assigned to task "${taskTitle}"${
+          projectNameToUse ? ` in project "${projectNameToUse}"` : ""
+        }`,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      }));
+
+      // Insert all notifications
+      const { error: notifyError } = await supabase
+        .from("notifications")
+        .insert(notifications);
+
+      if (notifyError) {
+        console.error(
+          "Failed to create task assignment notifications:",
+          notifyError
+        );
+      }
+    } catch (err) {
+      console.error("Error in notifyAssignedUsers:", err);
+    }
+  };
+
+  // NEW: Function to notify project manager about new task
+  const notifyProjectManager = async (taskId, taskTitle, projectId) => {
+    try {
+      if (!currentUser) return;
+
+      // Get project manager
+      const { data: projectData, error } = await supabase
+        .from("projects")
+        .select("manager_id, name")
+        .eq("id", projectId)
+        .single();
+
+      if (error || !projectData) return;
+
+      // Don't notify if the current user is the manager (they're creating the task)
+      if (projectData.manager_id === currentUser.id) return;
+
+      const { error: notifyError } = await supabase
+        .from("notifications")
+        .insert({
+          type: "task_created",
+          user_id: projectData.manager_id,
+          actor_id: currentUser.id,
+          task_id: taskId,
+          project_id: projectId,
+          message: `New task "${taskTitle}" was created in your project "${projectData.name}"`,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        });
+
+      if (notifyError) {
+        console.error("Failed to create manager notification:", notifyError);
+      }
+    } catch (err) {
+      console.error("Error in notifyProjectManager:", err);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -103,6 +207,17 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
 
       if (taskError) throw taskError;
 
+      // ✅ Log task creation activity
+      await logActivity({
+        type: "task_created",
+        details: `Created task: "${taskData.title}" in project "${
+          project?.name || "Unknown"
+        }"`,
+        projectId: projectId,
+        taskId: taskData.id,
+        userId: user.id,
+      });
+
       // ✅ Check any selected assignee has < 3 active tasks
       for (const userId of selectedAssignees) {
         const { count: activeTasksCount, error: countError } = await supabase
@@ -143,14 +258,34 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
           .insert(assignments);
 
         if (assignmentError) throw assignmentError;
+
+        // ✅ Log assignment activity for each assigned user
+        for (const userId of selectedAssignees) {
+          const assignedUser = teamMembers.find((m) => m.user_id === userId);
+          const userName = assignedUser
+            ? `${assignedUser.first_name} ${assignedUser.last_name}`
+            : "Unknown User";
+
+          await logActivity({
+            type: "task_assigned",
+            details: `Assigned task "${taskData.title}" to ${userName}`,
+            projectId: projectId,
+            taskId: taskData.id,
+            userId: user.id,
+          });
+        }
+
+        // NEW: Send notifications to assigned users
+        await notifyAssignedUsers(
+          taskData.id,
+          taskData.title,
+          selectedAssignees,
+          project?.name
+        );
       }
 
-      // ▶ Log activity
-      await logActivity({
-        projectId,
-        type: "task_created",
-        details: `Task "${taskData.title}" was created.`,
-      });
+      // NEW: Notify project manager about new task
+      await notifyProjectManager(taskData.id, taskData.title, projectId);
 
       // ▶ Reset
       setTaskForm({
@@ -167,6 +302,19 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
       if (onTaskCreated) onTaskCreated();
     } catch (err) {
       console.error("Error creating task:", err?.message || err);
+
+      // ✅ Log task creation failure
+      if (currentUser) {
+        await logActivity({
+          type: "task_creation_failed",
+          details: `Failed to create task "${taskForm.title}": ${
+            err?.message || "Unknown error"
+          }`,
+          projectId: projectId,
+          userId: currentUser.id,
+        });
+      }
+
       // Friendlier message for date violations
       if (
         String(err?.message || "")
@@ -278,6 +426,14 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
                 <p className="text-muted">No team members available</p>
               )}
             </div>
+            {selectedAssignees.length > 0 && (
+              <div className="mt-2">
+                <small className="text-info">
+                  Selected {selectedAssignees.length} user(s) - they will
+                  receive notifications when task is created
+                </small>
+              </div>
+            )}
           </Form.Group>
 
           <Row>

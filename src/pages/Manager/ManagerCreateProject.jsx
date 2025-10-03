@@ -8,14 +8,12 @@ import {
   Row,
   Col,
   Card,
-  Tabs,
-  Tab,
 } from "react-bootstrap";
 import { supabase } from "../../lib/supabaseClient";
 import { Link } from "react-router-dom";
 import { logActivity } from "../../lib/logger";
 
-const ManagerProjectDashboard = () => {
+const CreatePage = () => {
   // STATE FOR PROJECTS LIST
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +40,72 @@ const ManagerProjectDashboard = () => {
   const [users, setUsers] = useState([]);
   const [teams, setTeams] = useState([]);
 
-  // Check for active session on component mount
+  // handleChange — ADD THIS (was missing)
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // notifyTeamMembers (kept your fixed function)
+  const notifyTeamMembers = async (projectId, projectName, type, teamId) => {
+    try {
+      if (!session?.user?.id) {
+        console.warn("⚠ No session user found, skipping notifications.");
+        return;
+      }
+
+      console.log("🔔 Notifying team members for team:", teamId);
+
+      const { data: teamMembers, error } = await supabase
+        .from("team_members")
+        .select("user_id")
+        .eq("team_id", teamId);
+
+      if (error) throw error;
+
+      if (!teamMembers || teamMembers.length === 0) {
+        console.log("ℹ No team members found for this team.");
+        return;
+      }
+
+      const notificationPromises = teamMembers.map((member) =>
+        supabase.from("notifications").insert({
+          type: type,
+          user_id: member.user_id,
+          actor_id: session.user.id,
+          project_id: projectId,
+          message:
+            type === "project_created"
+              ? `New project "${projectName}" was created and assigned to your team`
+              : `Project "${projectName}" has been updated`,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        })
+      );
+
+      const results = await Promise.all(notificationPromises);
+
+      results.forEach((result, index) => {
+        if (result.error) {
+          console.error(
+            `❌ Error creating notification for member ${index}:`,
+            result.error
+          );
+        } else {
+          console.log(
+            `✅ Notification created for member ${index}:`,
+            result.data
+          );
+        }
+      });
+
+      console.log("📨 Total notifications created:", results.length);
+    } catch (err) {
+      console.error("Error notifying team members:", err);
+    }
+  };
+
+  // Check for active session on mount
   useEffect(() => {
     const initializeAuth = async () => {
       try {
@@ -51,37 +114,42 @@ const ManagerProjectDashboard = () => {
         } = await supabase.auth.getSession();
         setSession(session);
 
-        // Listen for auth changes
-        const {
-          data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (event, session) => {
-          setSession(session);
-          if (session) {
-            await fetchUsers();
-            await fetchTeams();
-            await fetchProjects();
+        const { data: subscription } = supabase.auth.onAuthStateChange(
+          async (_event, newSession) => {
+            setSession(newSession);
+            if (newSession) {
+              await fetchUsers();
+              await fetchTeams();
+              await fetchProjects();
+            }
           }
-        });
+        );
 
-        return () => subscription.unsubscribe();
-      } catch (error) {
-        setError(error.message);
+        return () => {
+          subscription?.unsubscribe();
+        };
+      } catch (err) {
+        setError(err.message);
       }
     };
 
     initializeAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch data when session changes
   useEffect(() => {
     if (session) {
       fetchProjects();
+      fetchUsers();
+      fetchTeams();
     } else {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  // FETCH PROJECTS FROM SUPABASE - ONLY MANAGER'S PROJECTS
+  // FETCH PROJECTS
   const fetchProjects = async () => {
     try {
       setLoading(true);
@@ -91,28 +159,29 @@ const ManagerProjectDashboard = () => {
         throw new Error("No user session found");
       }
 
-      // Only fetch projects where the current user is the manager
-      let query = supabase.from("projects").select(`
+      const { data, error } = await supabase
+        .from("projects")
+        .select(
+          `
           *,
           teams (name, description),
           manager:profiles!projects_manager_id_fkey (first_name, last_name, email)
-        `).eq("manager_id", session.user.id);
-
-      const { data, error } = await query.order("due_date", {
-        ascending: true,
-      });
+        `
+        )
+        .eq("manager_id", session.user.id)
+        .order("due_date", { ascending: true });
 
       if (error) throw error;
       setProjects(data || []);
-    } catch (error) {
-      console.error("Error fetching projects:", error.message);
-      setError("Error loading projects: " + error.message);
+    } catch (err) {
+      console.error("Error fetching projects:", err.message);
+      setError("Error loading projects: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // FETCH USERS FROM SUPABASE
+  // FETCH USERS
   const fetchUsers = async () => {
     try {
       const { data, error } = await supabase
@@ -122,13 +191,13 @@ const ManagerProjectDashboard = () => {
 
       if (error) throw error;
       setUsers(data || []);
-    } catch (error) {
-      console.error("Error fetching users:", error.message);
-      setError("Error loading users: " + error.message);
+    } catch (err) {
+      console.error("Error fetching users:", err.message);
+      setError("Error loading users: " + err.message);
     }
   };
 
-  // FETCH TEAMS FROM SUPABASE
+  // FETCH TEAMS
   const fetchTeams = async () => {
     try {
       const { data, error } = await supabase
@@ -138,13 +207,13 @@ const ManagerProjectDashboard = () => {
 
       if (error) throw error;
       setTeams(data || []);
-    } catch (error) {
-      console.error("Error fetching teams:", error.message);
-      setError("Error loading teams: " + error.message);
+    } catch (err) {
+      console.error("Error fetching teams:", err.message);
+      setError("Error loading teams: " + err.message);
     }
   };
 
-  // HANDLE MODAL OPEN/CLOSE
+  // MODAL HANDLERS
   const handleShowModal = (project = null) => {
     setCurrentProject(project);
     setFormData({
@@ -153,8 +222,8 @@ const ManagerProjectDashboard = () => {
       status: project?.status || "planned",
       team_id: project?.team_id || "",
       manager_id: project?.manager_id || session?.user?.id || "",
-      start_date: project?.start_date?.split("T")[0] || "",
-      due_date: project?.due_date?.split("T")[0] || "",
+      start_date: project?.start_date?.split?.("T")[0] || "",
+      due_date: project?.due_date?.split?.("T")[0] || "",
     });
     setShowModal(true);
   };
@@ -164,14 +233,20 @@ const ManagerProjectDashboard = () => {
     setCurrentProject(null);
   };
 
-  // HANDLE FORM SUBMIT
+  // FORM SUBMIT (CREATE/UPDATE)
+  // FORM SUBMIT (CREATE/UPDATE)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    console.log("🟡 HANDLE SUBMIT STARTED");
 
     try {
+      if (!session?.user?.id) throw new Error("No session user");
+      console.log("✅ Session user:", session.user.id);
+
       if (currentProject) {
-        // Update existing project - only if current user is the manager
+        // Update project
+        console.log("🟡 UPDATING EXISTING PROJECT...");
         const { error } = await supabase
           .from("projects")
           .update({
@@ -185,52 +260,76 @@ const ManagerProjectDashboard = () => {
             updated_at: new Date().toISOString(),
           })
           .eq("id", currentProject.id)
-          .eq("manager_id", session.user.id); // Ensure only manager can edit their projects
+          .eq("manager_id", session.user.id);
 
         if (error) throw error;
+        console.log("✅ PROJECT UPDATED SUCCESSFULLY");
 
-        // Log the activity
         await logActivity({
           type: "project_updated",
           details: `Manager updated project "${formData.name}".`,
           projectId: currentProject.id,
           userId: session.user.id,
         });
+
+        console.log("🟡 CALLING notifyTeamMembers FOR UPDATE...");
+        await notifyTeamMembers(
+          currentProject.id,
+          formData.name,
+          "project_updated",
+          formData.team_id
+        );
+        console.log("✅ NOTIFY TEAM MEMBERS CALLED FOR UPDATE");
       } else {
-        // Add new project with current user as manager
-        const { data, error } = await supabase.from("projects").insert({
-          name: formData.name,
-          description: formData.description,
-          status: formData.status,
-          team_id: formData.team_id,
-          manager_id: session.user.id, // Set current user as manager
-          start_date: formData.start_date,
-          due_date: formData.due_date,
-          created_by: session.user.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }).select().single();
+        // Create new project
+        console.log("🟡 CREATING NEW PROJECT...");
+        const { data, error } = await supabase
+          .from("projects")
+          .insert({
+            name: formData.name,
+            description: formData.description,
+            status: formData.status,
+            team_id: formData.team_id,
+            manager_id: session.user.id,
+            start_date: formData.start_date,
+            due_date: formData.due_date,
+            created_by: session.user.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
 
         if (error) throw error;
+        console.log("✅ PROJECT CREATED SUCCESSFULLY, ID:", data.id);
 
-        // Log the activity
         await logActivity({
           type: "project_created",
           details: `Manager created project "${formData.name}".`,
           projectId: data.id,
           userId: session.user.id,
         });
+
+        console.log("🟡 CALLING notifyTeamMembers FOR CREATE...");
+        await notifyTeamMembers(
+          data.id,
+          formData.name,
+          "project_created",
+          formData.team_id
+        );
+        console.log("✅ NOTIFY TEAM MEMBERS CALLED FOR CREATE");
       }
 
-      // Refresh projects list
-      fetchProjects();
+      console.log("🟡 FETCHING UPDATED PROJECTS...");
+      await fetchProjects();
+      console.log("🟡 CLOSING MODAL...");
       handleCloseModal();
-    } catch (error) {
-      console.error("Error saving project:", error.message);
-      setError("Error saving project: " + error.message);
+      console.log("✅ ALL OPERATIONS COMPLETED SUCCESSFULLY");
+    } catch (err) {
+      console.error("🔴 ERROR IN HANDLE SUBMIT:", err.message);
+      setError("Error saving project: " + err.message);
     }
   };
-
   // DELETE PROJECT
   const handleDeleteProject = async (projectId, projectName) => {
     if (!window.confirm(`Are you sure you want to delete "${projectName}"?`)) {
@@ -242,11 +341,10 @@ const ManagerProjectDashboard = () => {
         .from("projects")
         .delete()
         .eq("id", projectId)
-        .eq("manager_id", session.user.id); // Ensure only manager can delete their projects
+        .eq("manager_id", session.user.id);
 
       if (error) throw error;
 
-      // Log the activity
       await logActivity({
         type: "project_deleted",
         details: `Manager deleted project "${projectName}".`,
@@ -255,12 +353,53 @@ const ManagerProjectDashboard = () => {
       });
 
       fetchProjects();
-    } catch (error) {
-      setError("Error deleting project: " + error.message);
+    } catch (err) {
+      setError("Error deleting project: " + err.message);
     }
   };
 
-  // RENDER AUTH COMPONENT IF NOT SIGNED IN
+  // HELPERS
+  const formatDate = (dateString) => {
+    if (!dateString) return "Not set";
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  const getStatusText = (status) => {
+    const map = {
+      planned: "Planned",
+      in_progress: "In Progress",
+      on_hold: "On Hold",
+      completed: "Completed",
+    };
+    return map[status] || status;
+  };
+
+  const getStatusVariant = (status) => {
+    const map = {
+      planned: "secondary",
+      in_progress: "primary",
+      on_hold: "warning",
+      completed: "success",
+    };
+    return map[status] || "secondary";
+  };
+
+  const filteredProjects = projects.filter(
+    (p) =>
+      p.name.toLowerCase().includes(filterText.toLowerCase()) ||
+      p.description?.toLowerCase().includes(filterText.toLowerCase()) ||
+      p.teams?.name?.toLowerCase().includes(filterText.toLowerCase())
+  );
+
+  const projectStats = {
+    total: projects.length,
+    planned: projects.filter((p) => p.status === "planned").length,
+    in_progress: projects.filter((p) => p.status === "in_progress").length,
+    on_hold: projects.filter((p) => p.status === "on_hold").length,
+    completed: projects.filter((p) => p.status === "completed").length,
+  };
+
+  // AUTH GUARD
   if (!session) {
     return (
       <Container className="auth-container d-flex justify-content-center align-items-center min-vh-100">
@@ -286,53 +425,10 @@ const ManagerProjectDashboard = () => {
     );
   }
 
-  // FORMAT DATE FOR DISPLAY
-  const formatDate = (dateString) => {
-    if (!dateString) return "Not set";
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  // GET STATUS DISPLAY TEXT
-  const getStatusText = (status) => {
-    const statusMap = {
-      planned: "Planned",
-      in_progress: "In Progress",
-      on_hold: "On Hold",
-      completed: "Completed",
-    };
-    return statusMap[status] || status;
-  };
-
-  // GET STATUS BADGE VARIANT
-  const getStatusVariant = (status) => {
-    const variantMap = {
-      planned: "secondary",
-      in_progress: "primary",
-      on_hold: "warning",
-      completed: "success",
-    };
-    return variantMap[status] || "secondary";
-  };
-
-  // FILTER PROJECTS
-  const filteredProjects = projects.filter(project =>
-    project.name.toLowerCase().includes(filterText.toLowerCase()) ||
-    project.description?.toLowerCase().includes(filterText.toLowerCase()) ||
-    project.teams?.name?.toLowerCase().includes(filterText.toLowerCase())
-  );
-
-  // GET PROJECT STATS
-  const projectStats = {
-    total: projects.length,
-    planned: projects.filter(p => p.status === 'planned').length,
-    in_progress: projects.filter(p => p.status === 'In_progress').length,
-    on_hold: projects.filter(p => p.status === 'on_hold').length,
-    completed: projects.filter(p => p.status === 'completed').length,
-  };
-
+  // JSX RENDER
   return (
     <Container fluid className="projects-container">
-      {/* HEADER SECTION */}
+      {/* HEADER */}
       <Row className="projects-header align-items-center mb-4">
         <Col md={8}>
           <h2>Manager Dashboard</h2>
@@ -355,13 +451,13 @@ const ManagerProjectDashboard = () => {
         </Col>
       </Row>
 
-      {/* STATS CARDS */}
+      {/* STATS */}
       <Row className="mb-4">
         <Col md={3}>
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-primary">{projectStats.total}</h3>
-              <p className="mb-0">Total Projects</p>
+              <p>Total Projects</p>
             </Card.Body>
           </Card>
         </Col>
@@ -369,7 +465,7 @@ const ManagerProjectDashboard = () => {
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-info">{projectStats.in_progress}</h3>
-              <p className="mb-0">In Progress</p>
+              <p>In Progress</p>
             </Card.Body>
           </Card>
         </Col>
@@ -377,7 +473,7 @@ const ManagerProjectDashboard = () => {
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-warning">{projectStats.on_hold}</h3>
-              <p className="mb-0">On Hold</p>
+              <p>On Hold</p>
             </Card.Body>
           </Card>
         </Col>
@@ -385,7 +481,7 @@ const ManagerProjectDashboard = () => {
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-success">{projectStats.completed}</h3>
-              <p className="mb-0">Completed</p>
+              <p>Completed</p>
             </Card.Body>
           </Card>
         </Col>
@@ -420,8 +516,10 @@ const ManagerProjectDashboard = () => {
         </Alert>
       )}
 
-      {/* LOADING STATE */}
-      {loading && <div className="text-center my-4">Loading your projects...</div>}
+      {/* LOADING */}
+      {loading && (
+        <div className="text-center my-4">Loading your projects...</div>
+      )}
 
       {/* PROJECTS LIST */}
       <Row>
@@ -429,7 +527,7 @@ const ManagerProjectDashboard = () => {
           <Col key={project.id} md={6} lg={4} className="mb-4">
             <Card className="project-card h-100 shadow-sm">
               <Card.Body>
-                <div className="project-header d-flex justify-content-between align-items-start mb-3">
+                <div className="d-flex justify-content-between align-items-start mb-3">
                   <Card.Title className="h5">{project.name}</Card.Title>
                   <span
                     className={`badge bg-${getStatusVariant(project.status)}`}
@@ -437,12 +535,10 @@ const ManagerProjectDashboard = () => {
                     {getStatusText(project.status)}
                   </span>
                 </div>
-                <Card.Text className="project-details">
+                <Card.Text>
                   <div className="mb-2">
                     <strong>Description:</strong>{" "}
-                    <span className="text-muted">
-                      {project.description || "No description"}
-                    </span>
+                    {project.description || "No description"}
                   </div>
                   <div className="mb-2">
                     <strong>Team:</strong>{" "}
@@ -452,30 +548,21 @@ const ManagerProjectDashboard = () => {
                   </div>
                   <div className="mb-2">
                     <strong>Start Date:</strong>{" "}
-                    <span className="text-muted">
-                      {formatDate(project.start_date)}
-                    </span>
+                    {formatDate(project.start_date)}
                   </div>
                   <div className="mb-2">
-                    <strong>Due Date:</strong>{" "}
-                    <span className="text-muted">
-                      {formatDate(project.due_date)}
-                    </span>
+                    <strong>Due Date:</strong> {formatDate(project.due_date)}
                   </div>
                   <div className="mb-2">
-                    <strong>Created:</strong>{" "}
-                    <span className="text-muted">
-                      {formatDate(project.created_at)}
-                    </span>
+                    <strong>Created:</strong> {formatDate(project.created_at)}
                   </div>
                 </Card.Text>
-                <div className="project-actions d-flex gap-2 flex-wrap">
+                <div className="d-flex gap-2 flex-wrap">
                   <Button
                     as={Link}
                     to={`/manager/project/${project.id}`}
                     variant="primary"
                     size="sm"
-                    className="flex-grow-1"
                   >
                     Manage
                   </Button>
@@ -489,7 +576,9 @@ const ManagerProjectDashboard = () => {
                   <Button
                     variant="outline-danger"
                     size="sm"
-                    onClick={() => handleDeleteProject(project.id, project.name)}
+                    onClick={() =>
+                      handleDeleteProject(project.id, project.name)
+                    }
                   >
                     Delete
                   </Button>
@@ -500,16 +589,18 @@ const ManagerProjectDashboard = () => {
         ))}
       </Row>
 
-      {/* EMPTY STATE */}
+      {/* EMPTY STATES */}
       {!loading && filteredProjects.length === 0 && projects.length === 0 && (
         <div className="text-center my-5">
           <Card className="border-0">
             <Card.Body>
               <h4 className="text-muted">No projects found</h4>
-              <p className="text-muted">
-                You don't have any projects assigned as manager yet.
-              </p>
-              <Button variant="primary" size="lg" onClick={() => handleShowModal()}>
+              <p>You don't have any projects assigned as manager yet.</p>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => handleShowModal()}
+              >
                 Create Your First Project
               </Button>
             </Card.Body>
@@ -517,16 +608,16 @@ const ManagerProjectDashboard = () => {
         </div>
       )}
 
-      {/* FILTERED EMPTY STATE */}
       {!loading && filteredProjects.length === 0 && projects.length > 0 && (
         <div className="text-center my-5">
           <Card className="border-0">
             <Card.Body>
               <h4 className="text-muted">No projects match your search</h4>
-              <p className="text-muted">
-                Try adjusting your search terms or clear the filter.
-              </p>
-              <Button variant="outline-secondary" onClick={() => setFilterText("")}>
+              <p>Try adjusting your search terms or clear the filter.</p>
+              <Button
+                variant="outline-secondary"
+                onClick={() => setFilterText("")}
+              >
                 Clear Filter
               </Button>
             </Card.Body>
@@ -534,7 +625,7 @@ const ManagerProjectDashboard = () => {
         </div>
       )}
 
-      {/* CREATE/EDIT PROJECT MODAL */}
+      {/* CREATE/EDIT MODAL */}
       <Modal show={showModal} onHide={handleCloseModal} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>
@@ -548,10 +639,9 @@ const ManagerProjectDashboard = () => {
               <Form.Label>Project Name *</Form.Label>
               <Form.Control
                 type="text"
+                name="name"
                 value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
+                onChange={handleChange}
                 placeholder="Enter project name"
                 required
               />
@@ -562,10 +652,9 @@ const ManagerProjectDashboard = () => {
               <Form.Control
                 as="textarea"
                 rows={3}
+                name="description"
                 value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
+                onChange={handleChange}
                 placeholder="Enter project description"
               />
             </Form.Group>
@@ -575,10 +664,9 @@ const ManagerProjectDashboard = () => {
                 <Form.Group className="mb-3">
                   <Form.Label>Status</Form.Label>
                   <Form.Select
+                    name="status"
                     value={formData.status}
-                    onChange={(e) =>
-                      setFormData({ ...formData, status: e.target.value })
-                    }
+                    onChange={handleChange}
                   >
                     <option value="planned">Planned</option>
                     <option value="in_progress">In Progress</option>
@@ -591,10 +679,9 @@ const ManagerProjectDashboard = () => {
                 <Form.Group className="mb-3">
                   <Form.Label>Team *</Form.Label>
                   <Form.Select
+                    name="team_id"
                     value={formData.team_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, team_id: e.target.value })
-                    }
+                    onChange={handleChange}
                     required
                   >
                     <option value="">Select a team</option>
@@ -614,10 +701,9 @@ const ManagerProjectDashboard = () => {
                   <Form.Label>Start Date</Form.Label>
                   <Form.Control
                     type="date"
+                    name="start_date"
                     value={formData.start_date}
-                    onChange={(e) =>
-                      setFormData({ ...formData, start_date: e.target.value })
-                    }
+                    onChange={handleChange}
                   />
                 </Form.Group>
               </Col>
@@ -626,10 +712,9 @@ const ManagerProjectDashboard = () => {
                   <Form.Label>Due Date *</Form.Label>
                   <Form.Control
                     type="date"
+                    name="due_date"
                     value={formData.due_date}
-                    onChange={(e) =>
-                      setFormData({ ...formData, due_date: e.target.value })
-                    }
+                    onChange={handleChange}
                     required
                   />
                 </Form.Group>
@@ -638,12 +723,11 @@ const ManagerProjectDashboard = () => {
 
             <Form.Group className="mb-3">
               <Form.Label>Manager</Form.Label>
+              {/* Keep manager locked to current user to prevent accidental reassign */}
               <Form.Select
+                name="manager_id"
                 value={formData.manager_id}
-                onChange={(e) =>
-                  setFormData({ ...formData, manager_id: e.target.value })
-                }
-                disabled={true} // Managers can only manage their own projects
+                disabled
               >
                 <option value={session?.user?.id}>
                   You ({session?.user?.email})
@@ -669,4 +753,4 @@ const ManagerProjectDashboard = () => {
   );
 };
 
-export default ManagerProjectDashboard;
+export default CreatePage;

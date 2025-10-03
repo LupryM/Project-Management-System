@@ -18,6 +18,232 @@ import {
 import { supabase } from "../../lib/supabaseClient";
 import { logActivity } from "../../lib/logger";
 
+// Team Management Component
+const TeamManagement = ({ currentUser }) => {
+  const [teams, setTeams] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [loadingTeams, setLoadingTeams] = useState(true);
+  const [selectedTeam, setSelectedTeam] = useState(null);
+  const [editingMember, setEditingMember] = useState(null);
+  const [updatedRole, setUpdatedRole] = useState("");
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const rolesInTeam = ["editor", "read-only"];
+
+  useEffect(() => {
+    fetchTeams();
+  }, []);
+
+  const fetchTeams = async () => {
+    try {
+      setLoadingTeams(true);
+      const { data, error } = await supabase
+        .from("teams")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setTeams(data || []);
+    } catch (err) {
+      setError("Failed to load teams: " + err.message);
+    } finally {
+      setLoadingTeams(false);
+    }
+  };
+
+  const fetchTeamMembers = async (teamId) => {
+    try {
+      setLoadingTeams(true);
+      const { data, error } = await supabase
+        .from("team_members")
+        .select(`*, profiles:user_id (first_name, last_name, email)`)
+        .eq("team_id", teamId);
+      if (error) throw error;
+      setTeamMembers(
+        (data || []).filter((member) =>
+          rolesInTeam.includes(member.role_in_team)
+        )
+      );
+    } catch (err) {
+      setError("Failed to load team members: " + err.message);
+    } finally {
+      setLoadingTeams(false);
+    }
+  };
+
+  const openEditModal = (member) => {
+    setEditingMember(member);
+    setUpdatedRole(member.role_in_team || "read-only");
+    setError("");
+    setSuccess("");
+  };
+
+  const handleRoleUpdate = async () => {
+    if (!editingMember || !updatedRole) return;
+    setUpdating(true);
+    try {
+      const { error } = await supabase
+        .from("team_members")
+        .update({ role_in_team: updatedRole })
+        .eq("team_id", editingMember.team_id)
+        .eq("user_id", editingMember.user_id);
+      if (error) throw error;
+
+      await logActivity({
+        type: "team_role_changed",
+        details: `Changed role in team ${editingMember.team_id} from ${editingMember.role_in_team} to ${updatedRole} for ${editingMember.profiles.email}`,
+        projectId: null,
+        userId: currentUser.id,
+      });
+
+      setTeamMembers((prev) =>
+        prev.map((m) =>
+          m.team_id === editingMember.team_id &&
+          m.user_id === editingMember.user_id
+            ? { ...m, role_in_team: updatedRole }
+            : m
+        )
+      );
+      setSuccess("Team member role updated successfully");
+      setEditingMember(null);
+      setUpdatedRole("");
+    } catch (err) {
+      setError("Failed to update role: " + err.message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (loadingTeams) {
+    return (
+      <div className="text-center py-4">
+        <Spinner animation="border" role="status" className="me-2" />
+        Loading teams...
+      </div>
+    );
+  }
+
+  return (
+    <Card className="shadow-sm border-0">
+      <Card.Body>
+        {error && (
+          <Alert variant="danger" dismissible onClose={() => setError("")}>
+            {error}
+          </Alert>
+        )}
+        {success && (
+          <Alert variant="success" dismissible onClose={() => setSuccess("")}>
+            {success}
+          </Alert>
+        )}
+
+        <Form.Group className="mb-3">
+          <Form.Label>Select Team</Form.Label>
+          <Form.Select
+            value={selectedTeam || ""}
+            onChange={(e) => {
+              const teamId = parseInt(e.target.value);
+              setSelectedTeam(teamId);
+              fetchTeamMembers(teamId);
+            }}
+          >
+            <option value="">Select a team</option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </Form.Select>
+        </Form.Group>
+
+        {selectedTeam && (
+          <Table responsive hover>
+            <thead className="bg-light">
+              <tr>
+                <th>User</th>
+                <th>Email</th>
+                <th>Role in Team</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {teamMembers.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="text-center py-4">
+                    No team members found
+                  </td>
+                </tr>
+              ) : (
+                teamMembers.map((member) => (
+                  <tr key={member.user_id}>
+                    <td>
+                      {member.profiles?.first_name} {member.profiles?.last_name}
+                    </td>
+                    <td>{member.profiles?.email}</td>
+                    <td>{member.role_in_team || "N/A"}</td>
+                    <td>
+                      <Button
+                        size="sm"
+                        variant="outline-primary"
+                        onClick={() => openEditModal(member)}
+                      >
+                        Edit Role
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        )}
+
+        <Modal show={!!editingMember} onHide={() => setEditingMember(null)}>
+          <Modal.Header closeButton>
+            <Modal.Title>Edit Team Member Role</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            {editingMember && (
+              <>
+                <p>
+                  Editing role for:{" "}
+                  <strong>{editingMember.profiles.email}</strong>
+                </p>
+                <Form.Group className="mb-3">
+                  <Form.Label>Select Role</Form.Label>
+                  <Form.Select
+                    value={updatedRole}
+                    onChange={(e) => setUpdatedRole(e.target.value)}
+                  >
+                    {rolesInTeam.map((role) => (
+                      <option key={role} value={role}>
+                        {role.charAt(0).toUpperCase() + role.slice(1)}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Form.Group>
+              </>
+            )}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={() => setEditingMember(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleRoleUpdate}
+              disabled={updating}
+            >
+              {updating ? "Updating..." : "Update Role"}
+            </Button>
+          </Modal.Footer>
+        </Modal>
+      </Card.Body>
+    </Card>
+  );
+};
+
+// Main UserManagement Component
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
@@ -38,7 +264,9 @@ const UserManagement = () => {
   // Get current user
   useEffect(() => {
     const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await supabase
           .from("profiles")
@@ -51,7 +279,11 @@ const UserManagement = () => {
     getCurrentUser();
   }, []);
 
-  // Fetch users
+  // Fetch all users
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
   const fetchUsers = async () => {
     try {
       setLoading(true);
@@ -63,14 +295,12 @@ const UserManagement = () => {
       setUsers(data || []);
       setFilteredUsers(data || []);
     } catch (error) {
-      console.error("Error fetching users:", error.message);
       setError("Failed to load users: " + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch activity logs
   const fetchActivityLogs = async () => {
     try {
       setLogsLoading(true);
@@ -82,33 +312,37 @@ const UserManagement = () => {
       if (error) throw error;
       setActivityLogs(data || []);
     } catch (error) {
-      console.error("Error fetching activity logs:", error.message);
       setError("Failed to load activity logs: " + error.message);
     } finally {
       setLogsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
   // Filter users
   useEffect(() => {
-    if (searchTerm.trim() === "") {
+    if (!searchTerm.trim()) {
       setFilteredUsers(users);
-    } else {
-      const filtered = users.filter(
-        (user) =>
-          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (user.first_name && user.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (user.last_name && user.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
-      setFilteredUsers(filtered);
+      return;
     }
+    const filtered = users.filter(
+      (u) =>
+        u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.first_name &&
+          u.first_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (u.last_name &&
+          u.last_name.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+    setFilteredUsers(filtered);
   }, [searchTerm, users]);
 
-  // Handle role update
+  const openEditModal = (user) => {
+    setSelectedUser(user);
+    setUpdatedRole(user.role);
+    setShowEditModal(true);
+    setError("");
+    setSuccess("");
+  };
+
   const handleRoleUpdate = async () => {
     if (!selectedUser || !updatedRole || !currentUser) return;
     setUpdating(true);
@@ -126,34 +360,65 @@ const UserManagement = () => {
         userId: currentUser.id,
       });
 
-      setUsers(users.map((user) =>
-        user.id === selectedUser.id ? { ...user, role: updatedRole } : user
-      ));
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === selectedUser.id ? { ...u, role: updatedRole } : u
+        )
+      );
       setSuccess("User role updated successfully");
       setShowEditModal(false);
       setSelectedUser(null);
       setUpdatedRole("");
       fetchActivityLogs();
     } catch (error) {
-      console.error("Error updating user role:", error.message);
       setError("Failed to update user role: " + error.message);
     } finally {
       setUpdating(false);
     }
   };
 
-  // Handle deactivate/activate
   const toggleUserStatus = async (user) => {
     if (!currentUser) return;
     const newStatus = user.status === "Active" ? "Inactive" : "Active";
     setUpdating(true);
+
     try {
-      const { error } = await supabase
+      // Update user status
+      const { error: statusError } = await supabase
         .from("profiles")
         .update({ status: newStatus })
         .eq("id", user.id);
-      if (error) throw error;
+      if (statusError) throw statusError;
 
+      // If deactivating, handle task assignments
+      if (newStatus === "Inactive") {
+        // Get active tasks assigned to this user
+        const { data: activeTasks, error: tasksError } = await supabase
+          .from("task_assignments")
+          .select(`*, tasks(*)`)
+          .eq("user_id", user.id)
+          .in("tasks.status", ["todo", "in_progress"]); // only active tasks
+        if (tasksError) throw tasksError;
+
+        // Unassign tasks
+        for (const assignment of activeTasks || []) {
+          await supabase
+            .from("task_assignments")
+            .delete()
+            .eq("id", assignment.id);
+
+          // Notify task creator / manager
+          await supabase.from("notifications").insert({
+            user_id: assignment.tasks.created_by,
+            actor_id: currentUser.id,
+            task_id: assignment.task_id,
+            type: "task_reassignment_needed",
+            message: `User ${user.email} was deactivated. Task "${assignment.tasks.title}" needs reassignment.`,
+          });
+        }
+      }
+
+      // Log activity
       await logActivity({
         type: "user_status_changed",
         details: `${user.email} status changed to ${newStatus}`,
@@ -161,25 +426,22 @@ const UserManagement = () => {
         userId: currentUser.id,
       });
 
-      setUsers(users.map((u) =>
-        u.id === user.id ? { ...u, status: newStatus } : u
-      ));
-      setSuccess(`User ${newStatus.toLowerCase()} successfully`);
-      fetchActivityLogs();
+      // Update local state
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, status: newStatus } : u))
+      );
+
+      setSuccess(
+        `User ${
+          newStatus === "Active" ? "activated" : "deactivated"
+        } successfully`
+      );
     } catch (error) {
       console.error("Error updating user status:", error.message);
       setError("Failed to update status: " + error.message);
     } finally {
       setUpdating(false);
     }
-  };
-
-  const openEditModal = (user) => {
-    setSelectedUser(user);
-    setUpdatedRole(user.role);
-    setShowEditModal(true);
-    setError("");
-    setSuccess("");
   };
 
   const getRoleBadge = (role) => {
@@ -212,6 +474,7 @@ const UserManagement = () => {
       project_created: "success",
       project_updated: "info",
       project_deleted: "danger",
+      team_role_changed: "info",
     };
     return (
       <Badge bg={variants[type] || "secondary"} className="text-capitalize">
@@ -298,7 +561,9 @@ const UserManagement = () => {
                     filteredUsers.map((user) => (
                       <tr
                         key={user.id}
-                        className={user.status === "Inactive" ? "text-muted" : ""}
+                        className={
+                          user.status === "Inactive" ? "text-muted" : ""
+                        }
                       >
                         <td>
                           <div className="d-flex align-items-center">
@@ -327,30 +592,31 @@ const UserManagement = () => {
                         <td>{getRoleBadge(user.role)}</td>
                         <td>{getStatusBadge(user.status)}</td>
                         <td>
-                          {new Date(user.created_at).toLocaleDateString("en-US", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
+                          {new Date(user.created_at).toLocaleDateString(
+                            "en-US",
+                            { year: "numeric", month: "short", day: "numeric" }
+                          )}
                         </td>
                         <td className="d-flex gap-2">
                           <Button
                             variant="outline-primary"
                             size="sm"
                             onClick={() => openEditModal(user)}
-                            disabled={
-                              currentUser && user.id === currentUser.id || user.status === "Inactive"
-                            }
                           >
                             Edit Role
                           </Button>
                           <Button
-                            variant={user.status === "Active" ? "danger" : "success"}
+                            variant={
+                              user.status === "Active"
+                                ? "outline-danger"
+                                : "outline-success"
+                            }
                             size="sm"
                             onClick={() => toggleUserStatus(user)}
-                            disabled={currentUser && user.id === currentUser.id}
                           >
-                            {user.status === "Active" ? "Deactivate" : "Activate"}
+                            {user.status === "Active"
+                              ? "Deactivate"
+                              : "Activate"}
                           </Button>
                         </td>
                       </tr>
@@ -360,111 +626,57 @@ const UserManagement = () => {
               </Table>
             </Card.Body>
           </Card>
-        </Tab>
 
-        <Tab eventKey="activity" title="Activity Log" onEnter={fetchActivityLogs}>
-          <Card className="shadow-sm border-0">
-            <Card.Header className="bg-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">Recent User Activity</h5>
-              <Button variant="outline-primary" size="sm" onClick={fetchActivityLogs}>
-                Refresh Logs
-              </Button>
-            </Card.Header>
-            <Card.Body className="p-0">
-              {logsLoading ? (
-                <div className="text-center py-4">
-                  <Spinner animation="border" role="status" className="me-2" />
-                  Loading activity logs...
-                </div>
-              ) : (
-                <Table responsive hover>
-                  <thead className="bg-light">
-                    <tr>
-                      <th>User</th>
-                      <th>Activity Type</th>
-                      <th>Details</th>
-                      <th>Date & Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activityLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="text-center py-4">
-                          No activity logs found
-                        </td>
-                      </tr>
-                    ) : (
-                      activityLogs.map((log) => (
-                        <tr key={log.id}>
-                          <td>
-                            {log.profiles ? (
-                              <div>
-                                <div className="fw-semibold">
-                                  {log.profiles.first_name} {log.profiles.last_name}
-                                </div>
-                                <div className="text-muted small">{log.profiles.email}</div>
-                              </div>
-                            ) : (
-                              "Unknown user"
-                            )}
-                          </td>
-                          <td>{getActivityBadge(log.activity_type)}</td>
-                          <td>{log.activity_details}</td>
-                          <td>
-                            {new Date(log.created_at).toLocaleString("en-US", {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </Table>
+          <Modal show={showEditModal} onHide={() => setShowEditModal(false)}>
+            <Modal.Header closeButton>
+              <Modal.Title>Edit User Role</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+              {selectedUser && (
+                <>
+                  <p>
+                    Editing role for: <strong>{selectedUser.email}</strong>
+                  </p>
+                  <Form.Group className="mb-3">
+                    <Form.Label>Select Role</Form.Label>
+                    <Form.Select
+                      value={updatedRole}
+                      onChange={(e) => setUpdatedRole(e.target.value)}
+                    >
+                      {roles.map((role) => (
+                        <option key={role} value={role}>
+                          {role.charAt(0).toUpperCase() + role.slice(1)}
+                        </option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                </>
               )}
-            </Card.Body>
-          </Card>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button
+                variant="secondary"
+                onClick={() => setShowEditModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleRoleUpdate}
+                disabled={updating}
+              >
+                {updating ? "Updating..." : "Update Role"}
+              </Button>
+            </Modal.Footer>
+          </Modal>
         </Tab>
-      </Tabs>
 
-      <Modal show={showEditModal} onHide={() => setShowEditModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Edit User Role</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {selectedUser && (
-            <>
-              <p>
-                Editing role for: <strong>{selectedUser.email}</strong>
-              </p>
-              <Form.Group className="mb-3">
-                <Form.Label>Select Role</Form.Label>
-                <Form.Select
-                  value={updatedRole}
-                  onChange={(e) => setUpdatedRole(e.target.value)}
-                >
-                  {roles.map((role) => (
-                    <option key={role} value={role}>
-                      {role.charAt(0).toUpperCase() + role.slice(1)}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-            </>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowEditModal(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={handleRoleUpdate} disabled={updating}>
-            {updating ? "Updating..." : "Update Role"}
-          </Button>
-        </Modal.Footer>
-      </Modal>
+        <Tab eventKey="teams" title="Teams">
+          <TeamManagement currentUser={currentUser} />
+        </Tab>
+
+        
+      </Tabs>
     </Container>
   );
 };

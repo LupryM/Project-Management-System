@@ -37,14 +37,14 @@ const queryClient = new QueryClient();
 function App() {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const getSession = async () => {
       const { data, error } = await supabase.auth.getSession();
       if (error) console.error("Error getting session:", error.message);
       setUser(data?.session?.user ?? null);
-      setLoading(false);
+      // setLoading(false);
     };
 
     getSession();
@@ -74,10 +74,8 @@ function App() {
         .maybeSingle();
 
       if (error) {
-        console.error("Error fetching role:", error.message);
         setUserRole("employee"); // fallback
       } else if (!profileData) {
-        console.warn("No profile found, defaulting to employee");
         setUserRole("employee");
       } else {
         setUserRole(profileData.role || "employee");
@@ -87,7 +85,7 @@ function App() {
     fetchUserRole();
   }, [user]);
 
-  if (loading) return <div className="loading-screen">Checking session...</div>;
+  if (false) return <div className="loading-screen">Checking session...</div>;
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -111,6 +109,7 @@ function App() {
                   <Route path="/employees" element={<UserManagement />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" />} />
+                  <Route path="/LogChanges" element={<LogChanges />} />
                 </Routes>
               </AdminLayout>
             )}

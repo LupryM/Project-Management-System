@@ -151,12 +151,20 @@ const WeeklyReports = () => {
   }, [dateRange, teamFilter, projectFilter]);
 
   const processReportData = (tasks) => {
-    // Status distribution
+    // Status distribution - UPDATED to include on_hold and cancelled
     const statusDistribution = [
       { name: "To Do", value: tasks.filter((t) => t.status === "todo").length },
       {
         name: "In Progress",
         value: tasks.filter((t) => t.status === "in_progress").length,
+      },
+      {
+        name: "On Hold",
+        value: tasks.filter((t) => t.status === "on_hold").length,
+      },
+      {
+        name: "Cancelled",
+        value: tasks.filter((t) => t.status === "cancelled").length,
       },
       {
         name: "Completed",
@@ -282,6 +290,36 @@ const WeeklyReports = () => {
       );
     }
     return null;
+  };
+
+  // Custom label for pie chart to prevent overlapping
+  const renderCustomizedLabel = ({
+    cx,
+    cy,
+    midAngle,
+    innerRadius,
+    outerRadius,
+    percent,
+    index,
+  }) => {
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="white"
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+        fontSize="12"
+        fontWeight="bold"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
   };
 
   if (loading) {
@@ -420,9 +458,9 @@ const WeeklyReports = () => {
         </Card.Body>
       </Card>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - UPDATED to include all statuses */}
       <Row className="mb-4">
-        <Col md={3}>
+        <Col md={2}>
           <Card className="text-center">
             <Card.Body>
               <h3>{reportData.tasks.length}</h3>
@@ -430,7 +468,7 @@ const WeeklyReports = () => {
             </Card.Body>
           </Card>
         </Col>
-        <Col md={3}>
+        <Col md={2}>
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-success">
@@ -442,7 +480,7 @@ const WeeklyReports = () => {
             </Card.Body>
           </Card>
         </Col>
-        <Col md={3}>
+        <Col md={2}>
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-primary">
@@ -454,7 +492,7 @@ const WeeklyReports = () => {
             </Card.Body>
           </Card>
         </Col>
-        <Col md={3}>
+        <Col md={2}>
           <Card className="text-center">
             <Card.Body>
               <h3 className="text-warning">
@@ -462,6 +500,29 @@ const WeeklyReports = () => {
                   ?.value || 0}
               </h3>
               <Card.Text>To Do</Card.Text>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={2}>
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-info">
+                {reportData.statusDistribution.find((s) => s.name === "On Hold")
+                  ?.value || 0}
+              </h3>
+              <Card.Text>On Hold</Card.Text>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={2}>
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-secondary">
+                {reportData.statusDistribution.find(
+                  (s) => s.name === "Cancelled"
+                )?.value || 0}
+              </h3>
+              <Card.Text>Cancelled</Card.Text>
             </Card.Body>
           </Card>
         </Col>
@@ -487,10 +548,8 @@ const WeeklyReports = () => {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        label={({ name, percent }) =>
-                          `${name}: ${(percent * 100).toFixed(0)}%`
-                        }
-                        outerRadius={80}
+                        label={renderCustomizedLabel}
+                        outerRadius={100}
                         fill="#8884d8"
                         dataKey="value"
                       >
@@ -502,7 +561,12 @@ const WeeklyReports = () => {
                         ))}
                       </Pie>
                       <Tooltip />
-                      <Legend />
+                      <Legend
+                        layout="vertical"
+                        verticalAlign="middle"
+                        align="right"
+                        wrapperStyle={{ paddingLeft: "20px" }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 </Card.Body>
@@ -676,6 +740,10 @@ const WeeklyReports = () => {
                                   ? "success"
                                   : task.status === "in_progress"
                                   ? "primary"
+                                  : task.status === "on_hold"
+                                  ? "warning"
+                                  : task.status === "cancelled"
+                                  ? "danger"
                                   : "secondary"
                               }
                             >

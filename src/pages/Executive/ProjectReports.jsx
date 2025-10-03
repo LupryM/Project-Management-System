@@ -16,8 +16,6 @@ import {
   Bar,
   PieChart,
   Pie,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -25,8 +23,6 @@ import {
   Legend,
   ResponsiveContainer,
   Cell,
-  AreaChart,
-  Area,
 } from "recharts";
 import { supabase } from "../../lib/supabaseClient";
 import {
@@ -49,16 +45,18 @@ import {
   BsExclamationTriangle,
   BsListTask,
   BsDownload,
+  BsPauseCircle,
+  BsXCircle,
 } from "react-icons/bs";
 
 // Define colors for charts
 const COLORS = [
-  "#0088FE",
-  "#00C49F",
-  "#FFBB28",
-  "#FF8042",
-  "#8884D8",
-  "#82CA9D",
+  "#0088FE", // Blue
+  "#00C49F", // Teal
+  "#FFBB28", // Yellow
+  "#FF8042", // Orange
+  "#8884D8", // Purple
+  "#82CA9D", // Green
 ];
 
 const TaskAnalyticsReport = () => {
@@ -200,14 +198,16 @@ const TaskAnalyticsReport = () => {
       (t) =>
         t.due_date &&
         isBefore(parseISO(t.due_date), new Date()) &&
-        t.status !== "Completed"
+        t.status !== "Completed" &&
+        t.status !== "cancelled"
     ).length;
     const dueThisWeek = reportData.filter(
       (t) =>
         t.due_date &&
         isAfter(parseISO(t.due_date), startOfWeek(new Date())) &&
         isBefore(parseISO(t.due_date), endOfWeek(new Date())) &&
-        t.status !== "Completed"
+        t.status !== "Completed" &&
+        t.status !== "cancelled"
     ).length;
 
     // Priority distribution
@@ -227,7 +227,7 @@ const TaskAnalyticsReport = () => {
       { name: "Low", value: reportData.filter((t) => t.priority === 4).length },
     ];
 
-    // Status distribution (using only statuses that exist in your database)
+    // Status distribution (updated to include on_hold and cancelled)
     const statusDistribution = [
       {
         name: "To Do",
@@ -236,6 +236,14 @@ const TaskAnalyticsReport = () => {
       {
         name: "In Progress",
         value: reportData.filter((t) => t.status === "in_progress").length,
+      },
+      {
+        name: "On Hold",
+        value: reportData.filter((t) => t.status === "on_hold").length,
+      },
+      {
+        name: "Cancelled",
+        value: reportData.filter((t) => t.status === "cancelled").length,
       },
       {
         name: "Completed",
@@ -342,6 +350,8 @@ const TaskAnalyticsReport = () => {
     const statusMap = {
       todo: { label: "To Do", variant: "secondary" },
       in_progress: { label: "In Progress", variant: "primary" },
+      on_hold: { label: "On Hold", variant: "warning" },
+      cancelled: { label: "Cancelled", variant: "danger" },
       Completed: { label: "Completed", variant: "success" },
     };
     const { label, variant } = statusMap[status] || {
@@ -349,6 +359,59 @@ const TaskAnalyticsReport = () => {
       variant: "secondary",
     };
     return <Badge bg={variant}>{label}</Badge>;
+  };
+
+  // Custom label renderer for pie chart
+  const renderCustomizedLabel = ({
+    cx,
+    cy,
+    midAngle,
+    innerRadius,
+    outerRadius,
+    percent,
+    index,
+  }) => {
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="white"
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+        fontSize="12"
+        fontWeight="bold"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
+  };
+
+  // Custom tooltip for pie chart
+  const CustomPieTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div
+          className="custom-tooltip p-2 rounded shadow-sm"
+          style={{
+            backgroundColor: "rgba(255, 255, 255, 0.95)",
+            border: "1px solid #ccc",
+          }}
+        >
+          <p className="mb-1 fw-bold">{payload[0].name}</p>
+          <p className="mb-0">{`Tasks: ${payload[0].value}`}</p>
+          <p className="mb-0">{`Percentage: ${(
+            (payload[0].value / taskStats.total) *
+            100
+          ).toFixed(1)}%`}</p>
+        </div>
+      );
+    }
+    return null;
   };
 
   if (loading) {
@@ -500,7 +563,7 @@ const TaskAnalyticsReport = () => {
 
       {/* Charts Section */}
       <Row className="mb-4">
-        {/* Task Status Distribution */}
+        {/* Task Status Distribution - FIXED PIE CHART */}
         <Col md={6} className="mb-4">
           <Card>
             <Card.Header>
@@ -514,10 +577,9 @@ const TaskAnalyticsReport = () => {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(0)}%`
-                    }
-                    outerRadius={80}
+                    label={renderCustomizedLabel}
+                    outerRadius={100}
+                    innerRadius={60}
                     fill="#8884d8"
                     dataKey="value"
                   >
@@ -528,122 +590,19 @@ const TaskAnalyticsReport = () => {
                       />
                     ))}
                   </Pie>
-                  <Tooltip />
-                  <Legend />
+                  <Tooltip content={<CustomPieTooltip />} />
+                  <Legend
+                    layout="vertical"
+                    verticalAlign="middle"
+                    align="right"
+                    wrapperStyle={{ paddingLeft: "20px" }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </Card.Body>
           </Card>
         </Col>
 
-        {/* Overdue Tasks Section */}
-        <Row className="mb-4">
-          <Col md={12}>
-            <Card className="border-danger">
-              <Card.Header className="bg-danger text-white">
-                <h5 className="mb-0 d-flex align-items-center">
-                  <BsExclamationTriangle className="me-2" /> Overdue Tasks (
-                  {taskStats.overdue})
-                </h5>
-              </Card.Header>
-              <Card.Body>
-                {taskStats.overdue > 0 ? (
-                  <div className="table-responsive">
-                    <Table striped hover>
-                      <thead>
-                        <tr>
-                          <th>Task</th>
-                          <th>Project</th>
-                          <th>Assignee</th>
-                          <th>Priority</th>
-                          <th>Days Overdue</th>
-                          <th>Due Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reportData
-                          .filter(
-                            (task) =>
-                              task.due_date &&
-                              isBefore(parseISO(task.due_date), new Date()) &&
-                              task.status !== "Completed"
-                          )
-                          .map((task) => {
-                            const daysOverdue = differenceInDays(
-                              new Date(),
-                              parseISO(task.due_date)
-                            );
-                            return (
-                              <tr
-                                key={task.id}
-                                className={
-                                  daysOverdue > 7
-                                    ? "table-danger"
-                                    : "table-warning"
-                                }
-                              >
-                                <td>
-                                  <div>
-                                    <strong>{task.title}</strong>
-                                    {task.description && (
-                                      <div className="text-muted small">
-                                        {task.description.length > 50
-                                          ? `${task.description.substring(
-                                              0,
-                                              50
-                                            )}...`
-                                          : task.description}
-                                      </div>
-                                    )}
-                                  </div>
-                                </td>
-                                <td>{task.project?.name || "No Project"}</td>
-                                <td>
-                                  {task.assignments &&
-                                  task.assignments.length > 0
-                                    ? task.assignments
-                                        .map((a) =>
-                                          a.profiles
-                                            ? `${a.profiles.first_name} ${a.profiles.last_name}`
-                                            : "Unknown"
-                                        )
-                                        .join(", ")
-                                    : "Unassigned"}
-                                </td>
-                                <td>
-                                  <PriorityBadge priority={task.priority} />
-                                </td>
-                                <td>
-                                  <Badge
-                                    bg={daysOverdue > 7 ? "danger" : "warning"}
-                                  >
-                                    {daysOverdue}{" "}
-                                    {daysOverdue === 1 ? "day" : "days"}
-                                  </Badge>
-                                </td>
-                                <td>
-                                  {format(
-                                    parseISO(task.due_date),
-                                    "MMM d, yyyy"
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-4 text-muted">
-                    <BsCheckCircle size={32} className="text-success mb-2" />
-                    <h5>No overdue tasks!</h5>
-                    <p>All tasks are either completed or not yet due.</p>
-                  </div>
-                )}
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
         {/* Priority Distribution */}
         <Col md={6} className="mb-4">
           <Card>
@@ -664,67 +623,107 @@ const TaskAnalyticsReport = () => {
             </Card.Body>
           </Card>
         </Col>
-        {/* Weekly Activity */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Weekly Task Activity</h5>
+      </Row>
+
+      {/* Overdue Tasks Section */}
+      <Row className="mb-4">
+        <Col md={12}>
+          <Card className="border-danger">
+            <Card.Header className="bg-danger text-white">
+              <h5 className="mb-0 d-flex align-items-center">
+                <BsExclamationTriangle className="me-2" /> Overdue Tasks (
+                {taskStats.overdue})
+              </h5>
             </Card.Header>
             <Card.Body>
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={taskStats.weeklyTrend}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="completed"
-                    stackId="1"
-                    stroke="#00C49F"
-                    fill="#00C49F"
-                    name="Completed"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="created"
-                    stackId="2"
-                    stroke="#8884d8"
-                    fill="#8884d8"
-                    name="Created"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </Card.Body>
-          </Card>
-        </Col>
-        {/* Project Performance */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Project Performance</h5>
-            </Card.Header>
-            <Card.Body>
-              {taskStats.projectPerformance.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart
-                    data={taskStats.projectPerformance}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis type="category" dataKey="name" />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="completed" name="Completed" fill="#00C49F" />
-                    <Bar dataKey="total" name="Total Tasks" fill="#8884d8" />
-                  </BarChart>
-                </ResponsiveContainer>
+              {taskStats.overdue > 0 ? (
+                <div className="table-responsive">
+                  <Table striped hover>
+                    <thead>
+                      <tr>
+                        <th>Task</th>
+                        <th>Project</th>
+                        <th>Assignee</th>
+                        <th>Priority</th>
+                        <th>Days Overdue</th>
+                        <th>Due Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reportData
+                        .filter(
+                          (task) =>
+                            task.due_date &&
+                            isBefore(parseISO(task.due_date), new Date()) &&
+                            task.status !== "Completed" &&
+                            task.status !== "cancelled"
+                        )
+                        .map((task) => {
+                          const daysOverdue = differenceInDays(
+                            new Date(),
+                            parseISO(task.due_date)
+                          );
+                          return (
+                            <tr
+                              key={task.id}
+                              className={
+                                daysOverdue > 7
+                                  ? "table-danger"
+                                  : "table-warning"
+                              }
+                            >
+                              <td>
+                                <div>
+                                  <strong>{task.title}</strong>
+                                  {task.description && (
+                                    <div className="text-muted small">
+                                      {task.description.length > 50
+                                        ? `${task.description.substring(
+                                            0,
+                                            50
+                                          )}...`
+                                        : task.description}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td>{task.project?.name || "No Project"}</td>
+                              <td>
+                                {task.assignments && task.assignments.length > 0
+                                  ? task.assignments
+                                      .map((a) =>
+                                        a.profiles
+                                          ? `${a.profiles.first_name} ${a.profiles.last_name}`
+                                          : "Unknown"
+                                      )
+                                      .join(", ")
+                                  : "Unassigned"}
+                              </td>
+                              <td>
+                                <PriorityBadge priority={task.priority} />
+                              </td>
+                              <td>
+                                <Badge
+                                  bg={daysOverdue > 7 ? "danger" : "warning"}
+                                >
+                                  {daysOverdue}{" "}
+                                  {daysOverdue === 1 ? "day" : "days"}
+                                </Badge>
+                              </td>
+                              <td>
+                                {format(parseISO(task.due_date), "MMM d, yyyy")}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </Table>
+                </div>
               ) : (
-                <div className="text-center py-5 text-muted">
-                  No project data available
+                <div className="text-center py-4 text-muted">
+                  <BsCheckCircle size={32} className="text-success mb-2" />
+                  <h5>No overdue tasks!</h5>
+                  <p>All tasks are either completed or not yet due.</p>
                 </div>
               )}
             </Card.Body>
