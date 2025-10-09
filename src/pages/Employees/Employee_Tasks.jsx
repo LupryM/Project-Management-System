@@ -732,12 +732,6 @@ export default function EmployeeTaskView() {
                   <BsCheckCircle className="me-2" /> Mark Completed
                 </Dropdown.Item>
                 <Dropdown.Divider />
-                <Dropdown.Item
-                  className="text-danger"
-                  onClick={() => deleteTask.mutate(task.id)}
-                >
-                  <BsTrash className="me-2" /> Delete
-                </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown>
           )}

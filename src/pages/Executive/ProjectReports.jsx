@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
   Container,
   Row,
@@ -65,6 +67,7 @@ const TaskAnalyticsReport = () => {
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
+  const [exporting, setExporting] = useState(false);
   const [filters, setFilters] = useState({
     dateRange: "all",
     project: "all",
@@ -190,6 +193,108 @@ const TaskAnalyticsReport = () => {
     return filtered;
   }, [tasks, filters]);
 
+  const exportToPDF = async () => {
+    setExporting(true);
+
+    try {
+      // Get the main content element to capture
+      const element = document.getElementById("report-content");
+
+      if (!element) {
+        throw new Error("Report content not found");
+      }
+
+      // Show a temporary message to ensure DOM is ready
+      const originalContent = element.innerHTML;
+
+      // Capture the entire content as canvas
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: false,
+        scrollY: -window.scrollY,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
+
+      // Create PDF
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        0,
+        position,
+        imgWidth,
+        imgHeight
+      );
+      heightLeft -= pageHeight;
+
+      // Add additional pages if content is longer than one page
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(
+          canvas.toDataURL("image/png"),
+          "PNG",
+          0,
+          position,
+          imgWidth,
+          imgHeight
+        );
+        heightLeft -= pageHeight;
+      }
+
+      // Add header with timestamp and page numbers
+      // Add header with timestamp and page numbers
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        // Add page number footer
+        pdf.setFontSize(10);
+        pdf.setTextColor(100);
+        pdf.text(
+          `Page ${i} of ${totalPages}`,
+          pdf.internal.pageSize.getWidth() / 2,
+          pdf.internal.pageSize.getHeight() - 10,
+          { align: "center" }
+        );
+        // Add timestamp on first page - MOVED TO TOP RIGHT
+        if (i === 1) {
+          pdf.setFontSize(8);
+          pdf.setTextColor(150);
+          // Position in top right corner (page width - margin, small top margin)
+          pdf.text(
+            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+            pdf.internal.pageSize.getWidth() - 10, // Right margin
+            10, // Top margin
+            { align: "right" }
+          );
+        }
+      }
+
+      // Save the PDF
+      const fileName = `Task-Analytics-Report-${format(
+        new Date(),
+        "yyyy-MM-dd"
+      )}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error("PDF Export Error:", error);
+      setError("Failed to generate PDF: " + error.message);
+    } finally {
+      setExporting(false);
+    }
+  };
   // Calculate statistics for analytics
   const taskStats = useMemo(() => {
     const total = reportData.length;
@@ -427,216 +532,339 @@ const TaskAnalyticsReport = () => {
 
   return (
     <Container fluid className="py-4">
-      <Row className="mb-4">
-        <Col>
-          <h2 className="d-flex align-items-center">
-            <BsListTask className="me-2" /> Task Analytics Report
-          </h2>
-          <p className="text-muted">
-            Comprehensive analysis of task performance and metrics
-          </p>
-        </Col>
-        <Col xs="auto">
-          <Button variant="outline-primary">
-            <BsDownload className="me-2" /> Export Report
-          </Button>
-        </Col>
-      </Row>
+      <div id="report-content">
+        <Row className="mb-4">
+          <Col>
+            <h2 className="d-flex align-items-center">
+              <BsListTask className="me-2" /> Task Analytics Report
+            </h2>
+            <p className="text-muted">
+              Comprehensive analysis of task performance and metrics
+            </p>
+          </Col>
+          <Col xs="auto">
+            <Button
+              variant="outline-primary"
+              onClick={exportToPDF}
+              disabled={exporting || loading}
+            >
+              {exporting ? (
+                <>
+                  <Spinner animation="border" size="sm" className="me-2" />
+                  Generating PDF...
+                </>
+              ) : (
+                <>
+                  <BsDownload className="me-2" /> Export Report
+                </>
+              )}
+            </Button>
+          </Col>
+        </Row>
 
-      {error && (
-        <Alert
-          variant="danger"
-          className="mb-4"
-          onClose={() => setError(null)}
-          dismissible
-        >
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert
+            variant="danger"
+            className="mb-4"
+            onClose={() => setError(null)}
+            dismissible
+          >
+            {error}
+          </Alert>
+        )}
 
-      {/* Filters */}
-      <Card className="mb-4">
-        <Card.Body>
-          <Row className="g-3">
-            <Col md={3}>
-              <Form.Select
-                value={filters.dateRange}
-                onChange={(e) =>
-                  setFilters({ ...filters, dateRange: e.target.value })
-                }
-              >
-                <option value="all">All Time</option>
-                <option value="week">This Week</option>
-                <option value="month">This Month</option>
-                <option value="quarter">This Quarter</option>
-              </Form.Select>
-            </Col>
-            <Col md={3}>
-              <Form.Select
-                value={filters.project}
-                onChange={(e) =>
-                  setFilters({ ...filters, project: e.target.value })
-                }
-              >
-                <option value="all">All Projects</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </Form.Select>
-            </Col>
-            <Col md={3}>
-              <Form.Select
-                value={filters.assignee}
-                onChange={(e) =>
-                  setFilters({ ...filters, assignee: e.target.value })
-                }
-              >
-                <option value="all">All Assignees</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.first_name} {user.last_name}
-                  </option>
-                ))}
-              </Form.Select>
-            </Col>
-            <Col md={3}>
-              <Form.Select
-                value={filters.priority}
-                onChange={(e) =>
-                  setFilters({ ...filters, priority: e.target.value })
-                }
-              >
-                <option value="all">All Priorities</option>
-                <option value="1">Critical</option>
-                <option value="2">High</option>
-                <option value="3">Medium</option>
-                <option value="4">Low</option>
-              </Form.Select>
-            </Col>
-          </Row>
-        </Card.Body>
-      </Card>
+        {/* Filters */}
+        <Card className="mb-4">
+          <Card.Body>
+            <Row className="g-3">
+              <Col md={3}>
+                <Form.Select
+                  value={filters.dateRange}
+                  onChange={(e) =>
+                    setFilters({ ...filters, dateRange: e.target.value })
+                  }
+                >
+                  <option value="all">All Time</option>
+                  <option value="week">This Week</option>
+                  <option value="month">This Month</option>
+                  <option value="quarter">This Quarter</option>
+                </Form.Select>
+              </Col>
+              <Col md={3}>
+                <Form.Select
+                  value={filters.project}
+                  onChange={(e) =>
+                    setFilters({ ...filters, project: e.target.value })
+                  }
+                >
+                  <option value="all">All Projects</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </Form.Select>
+              </Col>
+              <Col md={3}>
+                <Form.Select
+                  value={filters.assignee}
+                  onChange={(e) =>
+                    setFilters({ ...filters, assignee: e.target.value })
+                  }
+                >
+                  <option value="all">All Assignees</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.first_name} {user.last_name}
+                    </option>
+                  ))}
+                </Form.Select>
+              </Col>
+              <Col md={3}>
+                <Form.Select
+                  value={filters.priority}
+                  onChange={(e) =>
+                    setFilters({ ...filters, priority: e.target.value })
+                  }
+                >
+                  <option value="all">All Priorities</option>
+                  <option value="1">Critical</option>
+                  <option value="2">High</option>
+                  <option value="3">Medium</option>
+                  <option value="4">Low</option>
+                </Form.Select>
+              </Col>
+            </Row>
+          </Card.Body>
+        </Card>
 
-      {/* Summary Cards */}
-      <Row className="mb-4">
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-primary">{taskStats.total}</h3>
-              <Card.Text>Total Tasks</Card.Text>
-              <small className="text-muted">In selected period</small>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-success">{taskStats.completed}</h3>
-              <Card.Text>Completed</Card.Text>
-              <small className="text-muted">
-                {Math.round(taskStats.completionRate)}% completion rate
-              </small>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-warning">{taskStats.dueThisWeek}</h3>
-              <Card.Text>Due This Week</Card.Text>
-              <small className="text-muted">Pending completion</small>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-danger">{taskStats.overdue}</h3>
-              <Card.Text>Overdue</Card.Text>
-              <small className="text-muted">Past due date</small>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+        {/* Summary Cards */}
+        <Row className="mb-4">
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-primary">{taskStats.total}</h3>
+                <Card.Text>Total Tasks</Card.Text>
+                <small className="text-muted">In selected period</small>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-success">{taskStats.completed}</h3>
+                <Card.Text>Completed</Card.Text>
+                <small className="text-muted">
+                  {Math.round(taskStats.completionRate)}% completion rate
+                </small>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-warning">{taskStats.dueThisWeek}</h3>
+                <Card.Text>Due This Week</Card.Text>
+                <small className="text-muted">Pending completion</small>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-danger">{taskStats.overdue}</h3>
+                <Card.Text>Overdue</Card.Text>
+                <small className="text-muted">Past due date</small>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
 
-      {/* Charts Section */}
-      <Row className="mb-4">
-        {/* Task Status Distribution - FIXED PIE CHART */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Task Status Distribution</h5>
-            </Card.Header>
-            <Card.Body>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={taskStats.statusDistribution}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={renderCustomizedLabel}
-                    outerRadius={100}
-                    innerRadius={60}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {taskStats.statusDistribution.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<CustomPieTooltip />} />
-                  <Legend
-                    layout="vertical"
-                    verticalAlign="middle"
-                    align="right"
-                    wrapperStyle={{ paddingLeft: "20px" }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card.Body>
-          </Card>
-        </Col>
+        {/* Charts Section */}
+        <Row className="mb-4">
+          {/* Task Status Distribution - FIXED PIE CHART */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Task Status Distribution</h5>
+              </Card.Header>
+              <Card.Body>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={taskStats.statusDistribution}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={renderCustomizedLabel}
+                      outerRadius={100}
+                      innerRadius={60}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {taskStats.statusDistribution.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[index % COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomPieTooltip />} />
+                    <Legend
+                      layout="vertical"
+                      verticalAlign="middle"
+                      align="right"
+                      wrapperStyle={{ paddingLeft: "20px" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Card.Body>
+            </Card>
+          </Col>
 
-        {/* Priority Distribution */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Task Priority Distribution</h5>
-            </Card.Header>
-            <Card.Body>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={taskStats.priorityDistribution}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="value" fill="#8884d8" />
-                </BarChart>
-              </ResponsiveContainer>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+          {/* Priority Distribution */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Task Priority Distribution</h5>
+              </Card.Header>
+              <Card.Body>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={taskStats.priorityDistribution}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="value" fill="#8884d8" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
 
-      {/* Overdue Tasks Section */}
-      <Row className="mb-4">
-        <Col md={12}>
-          <Card className="border-danger">
-            <Card.Header className="bg-danger text-white">
-              <h5 className="mb-0 d-flex align-items-center">
-                <BsExclamationTriangle className="me-2" /> Overdue Tasks (
-                {taskStats.overdue})
-              </h5>
-            </Card.Header>
-            <Card.Body>
-              {taskStats.overdue > 0 ? (
+        {/* Overdue Tasks Section */}
+        <Row className="mb-4">
+          <Col md={12}>
+            <Card className="border-danger">
+              <Card.Header className="bg-danger text-white">
+                <h5 className="mb-0 d-flex align-items-center">
+                  <BsExclamationTriangle className="me-2" /> Overdue Tasks (
+                  {taskStats.overdue})
+                </h5>
+              </Card.Header>
+              <Card.Body>
+                {taskStats.overdue > 0 ? (
+                  <div className="table-responsive">
+                    <Table striped hover>
+                      <thead>
+                        <tr>
+                          <th>Task</th>
+                          <th>Project</th>
+                          <th>Assignee</th>
+                          <th>Priority</th>
+                          <th>Days Overdue</th>
+                          <th>Due Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData
+                          .filter(
+                            (task) =>
+                              task.due_date &&
+                              isBefore(parseISO(task.due_date), new Date()) &&
+                              task.status !== "Completed" &&
+                              task.status !== "cancelled"
+                          )
+                          .map((task) => {
+                            const daysOverdue = differenceInDays(
+                              new Date(),
+                              parseISO(task.due_date)
+                            );
+                            return (
+                              <tr
+                                key={task.id}
+                                className={
+                                  daysOverdue > 7
+                                    ? "table-danger"
+                                    : "table-warning"
+                                }
+                              >
+                                <td>
+                                  <div>
+                                    <strong>{task.title}</strong>
+                                    {task.description && (
+                                      <div className="text-muted small">
+                                        {task.description.length > 50
+                                          ? `${task.description.substring(
+                                              0,
+                                              50
+                                            )}...`
+                                          : task.description}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td>{task.project?.name || "No Project"}</td>
+                                <td>
+                                  {task.assignments &&
+                                  task.assignments.length > 0
+                                    ? task.assignments
+                                        .map((a) =>
+                                          a.profiles
+                                            ? `${a.profiles.first_name} ${a.profiles.last_name}`
+                                            : "Unknown"
+                                        )
+                                        .join(", ")
+                                    : "Unassigned"}
+                                </td>
+                                <td>
+                                  <PriorityBadge priority={task.priority} />
+                                </td>
+                                <td>
+                                  <Badge
+                                    bg={daysOverdue > 7 ? "danger" : "warning"}
+                                  >
+                                    {daysOverdue}{" "}
+                                    {daysOverdue === 1 ? "day" : "days"}
+                                  </Badge>
+                                </td>
+                                <td>
+                                  {format(
+                                    parseISO(task.due_date),
+                                    "MMM d, yyyy"
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-muted">
+                    <BsCheckCircle size={32} className="text-success mb-2" />
+                    <h5>No overdue tasks!</h5>
+                    <p>All tasks are either completed or not yet due.</p>
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Detailed Tables */}
+        <Row>
+          {/* Task List Table */}
+          <Col md={12} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">
+                  Task Details ({reportData.length} tasks)
+                </h5>
+              </Card.Header>
+              <Card.Body>
                 <div className="table-responsive">
                   <Table striped hover>
                     <thead>
@@ -645,169 +873,67 @@ const TaskAnalyticsReport = () => {
                         <th>Project</th>
                         <th>Assignee</th>
                         <th>Priority</th>
-                        <th>Days Overdue</th>
+                        <th>Status</th>
                         <th>Due Date</th>
+                        <th>Created</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {reportData
-                        .filter(
-                          (task) =>
-                            task.due_date &&
-                            isBefore(parseISO(task.due_date), new Date()) &&
-                            task.status !== "Completed" &&
-                            task.status !== "cancelled"
-                        )
-                        .map((task) => {
-                          const daysOverdue = differenceInDays(
-                            new Date(),
-                            parseISO(task.due_date)
-                          );
-                          return (
-                            <tr
-                              key={task.id}
-                              className={
-                                daysOverdue > 7
-                                  ? "table-danger"
-                                  : "table-warning"
-                              }
-                            >
-                              <td>
-                                <div>
-                                  <strong>{task.title}</strong>
-                                  {task.description && (
-                                    <div className="text-muted small">
-                                      {task.description.length > 50
-                                        ? `${task.description.substring(
-                                            0,
-                                            50
-                                          )}...`
-                                        : task.description}
-                                    </div>
-                                  )}
+                      {reportData.map((task) => (
+                        <tr key={task.id}>
+                          <td>
+                            <div>
+                              <strong>{task.title}</strong>
+                              {task.description && (
+                                <div className="text-muted small">
+                                  {task.description.length > 50
+                                    ? `${task.description.substring(0, 50)}...`
+                                    : task.description}
                                 </div>
-                              </td>
-                              <td>{task.project?.name || "No Project"}</td>
-                              <td>
-                                {task.assignments && task.assignments.length > 0
-                                  ? task.assignments
-                                      .map((a) =>
-                                        a.profiles
-                                          ? `${a.profiles.first_name} ${a.profiles.last_name}`
-                                          : "Unknown"
-                                      )
-                                      .join(", ")
-                                  : "Unassigned"}
-                              </td>
-                              <td>
-                                <PriorityBadge priority={task.priority} />
-                              </td>
-                              <td>
-                                <Badge
-                                  bg={daysOverdue > 7 ? "danger" : "warning"}
-                                >
-                                  {daysOverdue}{" "}
-                                  {daysOverdue === 1 ? "day" : "days"}
-                                </Badge>
-                              </td>
-                              <td>
-                                {format(parseISO(task.due_date), "MMM d, yyyy")}
-                              </td>
-                            </tr>
-                          );
-                        })}
+                              )}
+                            </div>
+                          </td>
+                          <td>{task.project?.name || "No Project"}</td>
+                          <td>
+                            {task.assignments && task.assignments.length > 0
+                              ? task.assignments
+                                  .map((a) =>
+                                    a.profiles
+                                      ? `${a.profiles.first_name} ${a.profiles.last_name}`
+                                      : "Unknown"
+                                  )
+                                  .join(", ")
+                              : "Unassigned"}
+                          </td>
+                          <td>
+                            <PriorityBadge priority={task.priority} />
+                          </td>
+                          <td>
+                            <StatusBadge status={task.status} />
+                          </td>
+                          <td>
+                            {task.due_date
+                              ? format(parseISO(task.due_date), "MMM d, yyyy")
+                              : "No due date"}
+                          </td>
+                          <td>
+                            {format(parseISO(task.created_at), "MMM d, yyyy")}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </Table>
                 </div>
-              ) : (
-                <div className="text-center py-4 text-muted">
-                  <BsCheckCircle size={32} className="text-success mb-2" />
-                  <h5>No overdue tasks!</h5>
-                  <p>All tasks are either completed or not yet due.</p>
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Detailed Tables */}
-      <Row>
-        {/* Task List Table */}
-        <Col md={12} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Task Details ({reportData.length} tasks)</h5>
-            </Card.Header>
-            <Card.Body>
-              <div className="table-responsive">
-                <Table striped hover>
-                  <thead>
-                    <tr>
-                      <th>Task</th>
-                      <th>Project</th>
-                      <th>Assignee</th>
-                      <th>Priority</th>
-                      <th>Status</th>
-                      <th>Due Date</th>
-                      <th>Created</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reportData.map((task) => (
-                      <tr key={task.id}>
-                        <td>
-                          <div>
-                            <strong>{task.title}</strong>
-                            {task.description && (
-                              <div className="text-muted small">
-                                {task.description.length > 50
-                                  ? `${task.description.substring(0, 50)}...`
-                                  : task.description}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td>{task.project?.name || "No Project"}</td>
-                        <td>
-                          {task.assignments && task.assignments.length > 0
-                            ? task.assignments
-                                .map((a) =>
-                                  a.profiles
-                                    ? `${a.profiles.first_name} ${a.profiles.last_name}`
-                                    : "Unknown"
-                                )
-                                .join(", ")
-                            : "Unassigned"}
-                        </td>
-                        <td>
-                          <PriorityBadge priority={task.priority} />
-                        </td>
-                        <td>
-                          <StatusBadge status={task.status} />
-                        </td>
-                        <td>
-                          {task.due_date
-                            ? format(parseISO(task.due_date), "MMM d, yyyy")
-                            : "No due date"}
-                        </td>
-                        <td>
-                          {format(parseISO(task.created_at), "MMM d, yyyy")}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-              {reportData.length === 0 && (
-                <div className="text-center py-5 text-muted">
-                  No tasks found matching your filters
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+                {reportData.length === 0 && (
+                  <div className="text-center py-5 text-muted">
+                    No tasks found matching your filters
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      </div>
     </Container>
   );
 };

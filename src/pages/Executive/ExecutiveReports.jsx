@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
   Container,
   Row,
@@ -60,6 +61,7 @@ const WeeklyReports = () => {
   const [teams, setTeams] = useState([]);
   const [activeTab, setActiveTab] = useState("overview");
   const [projects, setProjects] = useState([]);
+  const [exporting, setExporting] = useState(false);
   const [reportData, setReportData] = useState({
     tasks: [],
     projects: [],
@@ -96,6 +98,102 @@ const WeeklyReports = () => {
 
     fetchInitialData();
   }, []);
+
+  const exportToPDF = async () => {
+    setExporting(true);
+
+    try {
+      // Get the main content element to capture
+      const element = document.getElementById("weekly-report-content");
+
+      if (!element) {
+        throw new Error("Report content not found");
+      }
+
+      // Capture the entire content as canvas
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: false,
+        scrollY: -window.scrollY,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
+
+      // Create PDF
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        0,
+        position,
+        imgWidth,
+        imgHeight
+      );
+      heightLeft -= pageHeight;
+
+      // Add additional pages if content is longer than one page
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(
+          canvas.toDataURL("image/png"),
+          "PNG",
+          0,
+          position,
+          imgWidth,
+          imgHeight
+        );
+        heightLeft -= pageHeight;
+      }
+
+      // Add header with timestamp and page numbers
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        // Add page number footer
+        pdf.setFontSize(10);
+        pdf.setTextColor(100);
+        pdf.text(
+          `Page ${i} of ${totalPages}`,
+          pdf.internal.pageSize.getWidth() / 2,
+          pdf.internal.pageSize.getHeight() - 10,
+          { align: "center" }
+        );
+        // Add timestamp on first page - MOVED TO TOP RIGHT
+        if (i === 1) {
+          pdf.setFontSize(8);
+          pdf.setTextColor(150);
+          // Position in top right corner (page width - margin, small top margin)
+          pdf.text(
+            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+            pdf.internal.pageSize.getWidth() - 10, // Right margin
+            10, // Top margin
+            { align: "right" }
+          );
+        }
+      }
+
+      // Save the PDF
+      const fileName = `Weekly-Report-${format(new Date(), "yyyy-MM-dd")}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error("PDF Export Error:", error);
+      setError("Failed to generate PDF: " + error.message);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Fetch report data
   useEffect(() => {
@@ -335,472 +433,485 @@ const WeeklyReports = () => {
 
   return (
     <Container fluid className="py-4">
-      <Row className="mb-4">
-        <Col>
-          <h2 className="d-flex align-items-center">
-            <BsGraphUp className="me-2" /> Weekly Reports
-          </h2>
-          <p className="text-muted">
-            Analytics for {format(new Date(dateRange.start), "MMM d, yyyy")} -{" "}
-            {format(new Date(dateRange.end), "MMM d, yyyy")}
-          </p>
-        </Col>
-        <Col xs="auto">
-          <div className="d-flex gap-2">
-            <Button
-              variant="outline-secondary"
-              size="sm"
-              onClick={() => window.location.reload()}
-            >
-              <BsArrowRepeat className="me-1" /> Refresh
-            </Button>
-            <Button
-              variant="outline-secondary"
-              size="sm"
-              onClick={() => window.location.reload()}
-            >
-              <BsArrowClockwise className="me-1" /> Refresh
-            </Button>
-          </div>
-        </Col>
-      </Row>
+      <div id="weekly-report-content">
+        <Row className="mb-4">
+          <Col>
+            <h2 className="d-flex align-items-center">
+              <BsGraphUp className="me-2" /> Weekly Reports
+            </h2>
+            <p className="text-muted">
+              Analytics for {format(new Date(dateRange.start), "MMM d, yyyy")} -{" "}
+              {format(new Date(dateRange.end), "MMM d, yyyy")}
+            </p>
+          </Col>
+          <Col xs="auto">
+            <div className="d-flex gap-2">
+              <Button
+                variant="outline-secondary"
+                size="sm"
+                onClick={() => window.location.reload()}
+              >
+                <BsArrowRepeat className="me-1" /> Refresh
+              </Button>
+              <Button
+                variant="outline-primary"
+                onClick={exportToPDF}
+                disabled={exporting || loading}
+              >
+                {exporting ? (
+                  <>
+                    <Spinner animation="border" size="sm" className="me-2" />
+                    Generating PDF...
+                  </>
+                ) : (
+                  <>
+                    <BsDownload className="me-2" /> Export PDF
+                  </>
+                )}
+              </Button>
+            </div>
+          </Col>
+        </Row>
 
-      {error && (
-        <Alert
-          variant="danger"
-          className="mb-4"
-          onClose={() => setError(null)}
-          dismissible
-        >
-          {error}
-        </Alert>
-      )}
-
-      {/* Filters */}
-      <Card className="mb-4">
-        <Card.Body>
-          <Row>
-            <Col md={3}>
-              <Form.Group>
-                <Form.Label className="d-flex align-items-center">
-                  <BsCalendar className="me-1" /> Date Range
-                </Form.Label>
-                <Form.Select
-                  value={`${dateRange.start} to ${dateRange.end}`}
-                  onChange={(e) => handleDateRangeChange(e.target.value)}
-                >
-                  <option value="thisWeek">This Week</option>
-                  <option value="lastWeek">Last Week</option>
-                  <option value="custom">Custom Range</option>
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={3}>
-              <Form.Group>
-                <Form.Label className="d-flex align-items-center">
-                  <BsFilter className="me-1" /> Team
-                </Form.Label>
-                <Form.Select
-                  value={teamFilter}
-                  onChange={(e) => setTeamFilter(e.target.value)}
-                >
-                  <option value="all">All Teams</option>
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={3}>
-              <Form.Group>
-                <Form.Label>Project</Form.Label>
-                <Form.Select
-                  value={projectFilter}
-                  onChange={(e) => setProjectFilter(e.target.value)}
-                >
-                  <option value="all">All Projects</option>
-                  {projects
-                    .filter(
-                      (p) => teamFilter === "all" || p.team_id === teamFilter
-                    )
-                    .map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
+        {error && (
+          <Alert
+            variant="danger"
+            className="mb-4"
+            onClose={() => setError(null)}
+            dismissible
+          >
+            {error}
+          </Alert>
+        )}
+        {/* Filters */}
+        <Card className="mb-4">
+          <Card.Body>
+            <Row className="g-3">
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label className="d-flex align-items-center">
+                    <BsCalendar className="me-1" /> Date Range
+                  </Form.Label>
+                  <Form.Select
+                    value={`${dateRange.start} to ${dateRange.end}`}
+                    onChange={(e) => handleDateRangeChange(e.target.value)}
+                  >
+                    <option value="thisWeek">This Week</option>
+                    <option value="lastWeek">Last Week</option>
+                    <option value="custom">Custom Range</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label className="d-flex align-items-center">
+                    <BsFilter className="me-1" /> Team
+                  </Form.Label>
+                  <Form.Select
+                    value={teamFilter}
+                    onChange={(e) => setTeamFilter(e.target.value)}
+                  >
+                    <option value="all">All Teams</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
                       </option>
                     ))}
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={3}>
-              <Form.Group>
-                <Form.Label>Custom Date Range</Form.Label>
-                <div className="d-flex gap-2">
-                  <Form.Control
-                    type="date"
-                    value={dateRange.start}
-                    onChange={(e) =>
-                      setDateRange({ ...dateRange, start: e.target.value })
-                    }
-                  />
-                  <Form.Control
-                    type="date"
-                    value={dateRange.end}
-                    onChange={(e) =>
-                      setDateRange({ ...dateRange, end: e.target.value })
-                    }
-                  />
-                </div>
-              </Form.Group>
-            </Col>
-          </Row>
-        </Card.Body>
-      </Card>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Project</Form.Label>
+                  <Form.Select
+                    value={projectFilter}
+                    onChange={(e) => setProjectFilter(e.target.value)}
+                  >
+                    <option value="all">All Projects</option>
+                    {projects
+                      .filter(
+                        (p) => teamFilter === "all" || p.team_id === teamFilter
+                      )
+                      .map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Custom Date Range</Form.Label>
+                  <div className="d-flex gap-1">
+                    <Form.Control
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) =>
+                        setDateRange({ ...dateRange, start: e.target.value })
+                      }
+                      style={{ fontSize: "0.875rem" }}
+                    />
+                    <Form.Control
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) =>
+                        setDateRange({ ...dateRange, end: e.target.value })
+                      }
+                      style={{ fontSize: "0.875rem" }}
+                    />
+                  </div>
+                </Form.Group>
+              </Col>
+            </Row>
+          </Card.Body>
+        </Card>
 
-      {/* Summary Cards - UPDATED to include all statuses */}
-      <Row className="mb-4">
-        <Col md={2}>
-          <Card className="text-center">
-            <Card.Body>
-              <h3>{reportData.tasks.length}</h3>
-              <Card.Text>Total Tasks</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={2}>
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-success">
-                {reportData.statusDistribution.find(
-                  (s) => s.name === "Completed"
-                )?.value || 0}
-              </h3>
-              <Card.Text>Completed</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={2}>
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-primary">
-                {reportData.statusDistribution.find(
-                  (s) => s.name === "In Progress"
-                )?.value || 0}
-              </h3>
-              <Card.Text>In Progress</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={2}>
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-warning">
-                {reportData.statusDistribution.find((s) => s.name === "To Do")
-                  ?.value || 0}
-              </h3>
-              <Card.Text>To Do</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={2}>
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-info">
-                {reportData.statusDistribution.find((s) => s.name === "On Hold")
-                  ?.value || 0}
-              </h3>
-              <Card.Text>On Hold</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={2}>
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-secondary">
-                {reportData.statusDistribution.find(
-                  (s) => s.name === "Cancelled"
-                )?.value || 0}
-              </h3>
-              <Card.Text>Cancelled</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+        {/* Summary Cards - UPDATED to include all statuses */}
+        <Row className="mb-4">
+          <Col md={2}>
+            <Card className="text-center">
+              <Card.Body>
+                <h3>{reportData.tasks.length}</h3>
+                <Card.Text>Total Tasks</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={2}>
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-success">
+                  {reportData.statusDistribution.find(
+                    (s) => s.name === "Completed"
+                  )?.value || 0}
+                </h3>
+                <Card.Text>Completed</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={2}>
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-primary">
+                  {reportData.statusDistribution.find(
+                    (s) => s.name === "In Progress"
+                  )?.value || 0}
+                </h3>
+                <Card.Text>In Progress</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={2}>
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-warning">
+                  {reportData.statusDistribution.find((s) => s.name === "To Do")
+                    ?.value || 0}
+                </h3>
+                <Card.Text>To Do</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={2}>
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-info">
+                  {reportData.statusDistribution.find(
+                    (s) => s.name === "On Hold"
+                  )?.value || 0}
+                </h3>
+                <Card.Text>On Hold</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={2}>
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-secondary">
+                  {reportData.statusDistribution.find(
+                    (s) => s.name === "Cancelled"
+                  )?.value || 0}
+                </h3>
+                <Card.Text>Cancelled</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
 
-      <Tabs
-        activeKey={activeTab}
-        onSelect={(k) => setActiveTab(k)}
-        className="mb-4"
-      >
-        <Tab eventKey="overview" title="Overview">
-          <Row>
-            <Col md={6} className="mb-4">
-              <Card>
-                <Card.Header>
-                  <h5 className="mb-0">Task Status Distribution</h5>
-                </Card.Header>
-                <Card.Body>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={reportData.statusDistribution}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={renderCustomizedLabel}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {reportData.statusDistribution.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend
-                        layout="vertical"
-                        verticalAlign="middle"
-                        align="right"
-                        wrapperStyle={{ paddingLeft: "20px" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={6} className="mb-4">
-              <Card>
-                <Card.Header>
-                  <h5 className="mb-0">Task Priority Distribution</h5>
-                </Card.Header>
-                <Card.Body>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={reportData.priorityDistribution}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="value" fill="#8884d8" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={12} className="mb-4">
-              <Card>
-                <Card.Header>
-                  <h5 className="mb-0">Weekly Task Trends</h5>
-                </Card.Header>
-                <Card.Body>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={reportData.weeklyTrends}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Area
-                        type="monotone"
-                        dataKey="tasks"
-                        stroke="#8884d8"
-                        fill="#8884d8"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        </Tab>
-
-        <Tab eventKey="performance" title="Team Performance">
-          <Row>
-            <Col md={6} className="mb-4">
-              <Card>
-                <Card.Header>
-                  <h5 className="mb-0">Team Completion Rates</h5>
-                </Card.Header>
-                <Card.Body>
-                  {reportData.teamPerformance.length > 0 ? (
+        <Tabs
+          activeKey={activeTab}
+          onSelect={(k) => setActiveTab(k)}
+          className="mb-4"
+        >
+          <Tab eventKey="overview" title="Overview">
+            <Row>
+              <Col md={6} className="mb-4">
+                <Card>
+                  <Card.Header>
+                    <h5 className="mb-0">Task Status Distribution</h5>
+                  </Card.Header>
+                  <Card.Body>
                     <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={reportData.teamPerformance}>
+                      <PieChart>
+                        <Pie
+                          data={reportData.statusDistribution}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={renderCustomizedLabel}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {reportData.statusDistribution.map((entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={COLORS[index % COLORS.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend
+                          layout="vertical"
+                          verticalAlign="middle"
+                          align="right"
+                          wrapperStyle={{ paddingLeft: "20px" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col md={6} className="mb-4">
+                <Card>
+                  <Card.Header>
+                    <h5 className="mb-0">Task Priority Distribution</h5>
+                  </Card.Header>
+                  <Card.Body>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={reportData.priorityDistribution}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
                         <YAxis />
                         <Tooltip />
                         <Legend />
-                        <Bar
-                          dataKey="Completed"
-                          fill="#00C49F"
-                          name="Completed"
-                        />
-                        <Bar
-                          dataKey="total"
-                          fill="#8884d8"
-                          name="Total Tasks"
-                        />
+                        <Bar dataKey="value" fill="#8884d8" />
                       </BarChart>
                     </ResponsiveContainer>
-                  ) : (
-                    <div className="text-center py-5 text-muted">
-                      No team performance data available for the selected
-                      filters.
-                    </div>
-                  )}
-                </Card.Body>
-              </Card>
-            </Col>
-            <Col md={6} className="mb-4">
-              <Card>
-                <Card.Header>
-                  <h5 className="mb-0">Project Progress</h5>
-                </Card.Header>
-                <Card.Body>
-                  {reportData.projectProgress.length > 0 ? (
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col md={12} className="mb-4">
+                <Card>
+                  <Card.Header>
+                    <h5 className="mb-0">Weekly Task Trends</h5>
+                  </Card.Header>
+                  <Card.Body>
                     <ResponsiveContainer width="100%" height={300}>
-                      <BarChart
-                        data={[...reportData.projectProgress].sort(
-                          (a, b) => b.progress - a.progress
-                        )}
-                        layout="vertical"
-                      >
+                      <AreaChart data={reportData.weeklyTrends}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" domain={[0, 100]} />
-                        <YAxis type="category" dataKey="name" width={100} />
-                        <Tooltip
-                          formatter={(value) => [
-                            `${value.toFixed(1)}%`,
-                            "Progress",
-                          ]}
-                        />
-                        <Bar
-                          dataKey="progress"
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip />
+                        <Area
+                          type="monotone"
+                          dataKey="tasks"
+                          stroke="#8884d8"
                           fill="#8884d8"
-                          name="Progress %"
-                        >
-                          {reportData.projectProgress.map((entry, index) => (
-                            <Cell
-                              key={`cell-${index}`}
-                              fill={
-                                entry.progress > 75
-                                  ? "#00C49F"
-                                  : entry.progress > 50
-                                  ? "#FFBB28"
-                                  : "#FF8042"
-                              }
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
+                        />
+                      </AreaChart>
                     </ResponsiveContainer>
-                  ) : (
-                    <div className="text-center py-5 text-muted">
-                      No project progress data available for the selected
-                      filters.
-                    </div>
-                  )}
-                </Card.Body>
-              </Card>
-            </Col>
-          </Row>
-        </Tab>
+                  </Card.Body>
+                </Card>
+              </Col>
+            </Row>
+          </Tab>
 
-        <Tab eventKey="details" title="Task Details">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Task List</h5>
-            </Card.Header>
-            <Card.Body>
-              {reportData.tasks.length > 0 ? (
-                <div className="table-responsive">
-                  <table className="table table-hover">
-                    <thead>
-                      <tr>
-                        <th>Task</th>
-                        <th>Project</th>
-                        <th>Status</th>
-                        <th>Priority</th>
-                        <th>Due Date</th>
-                        <th>Assigned To</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reportData.tasks.map((task) => (
-                        <tr key={task.id}>
-                          <td>{task.title}</td>
-                          <td>{task.project?.name || "N/A"}</td>
-                          <td>
-                            <Badge
-                              bg={
-                                task.status === "Completed"
-                                  ? "success"
-                                  : task.status === "in_progress"
-                                  ? "primary"
-                                  : task.status === "on_hold"
-                                  ? "warning"
-                                  : task.status === "cancelled"
-                                  ? "danger"
-                                  : "secondary"
-                              }
-                            >
-                              {task.status}
-                            </Badge>
-                          </td>
-                          <td>
-                            <Badge
-                              bg={
-                                task.priority === 1
-                                  ? "danger"
-                                  : task.priority === 2
-                                  ? "warning"
-                                  : task.priority === 3
-                                  ? "info"
-                                  : "secondary"
-                              }
-                            >
-                              {task.priority === 1
-                                ? "Critical"
-                                : task.priority === 2
-                                ? "High"
-                                : task.priority === 3
-                                ? "Medium"
-                                : "Low"}
-                            </Badge>
-                          </td>
-                          <td>
-                            {task.due_date
-                              ? format(new Date(task.due_date), "MMM d, yyyy")
-                              : "N/A"}
-                          </td>
-                          <td>
-                            {task.assignments && task.assignments.length > 0
-                              ? task.assignments
-                                  .map((a) =>
-                                    a.profiles
-                                      ? `${a.profiles.first_name} ${a.profiles.last_name}`
-                                      : "Unknown"
-                                  )
-                                  .join(", ")
-                              : "Unassigned"}
-                          </td>
+          <Tab eventKey="performance" title="Team Performance">
+            <Row>
+              <Col md={6} className="mb-4">
+                <Card>
+                  <Card.Header>
+                    <h5 className="mb-0">Team Completion Rates</h5>
+                  </Card.Header>
+                  <Card.Body>
+                    {reportData.teamPerformance.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={reportData.teamPerformance}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Bar
+                            dataKey="Completed"
+                            fill="#00C49F"
+                            name="Completed"
+                          />
+                          <Bar
+                            dataKey="total"
+                            fill="#8884d8"
+                            name="Total Tasks"
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="text-center py-5 text-muted">
+                        No team performance data available for the selected
+                        filters.
+                      </div>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col md={6} className="mb-4">
+                <Card>
+                  <Card.Header>
+                    <h5 className="mb-0">Project Progress</h5>
+                  </Card.Header>
+                  <Card.Body>
+                    {reportData.projectProgress.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={300}>
+                        <BarChart
+                          data={[...reportData.projectProgress].sort(
+                            (a, b) => b.progress - a.progress
+                          )}
+                          layout="vertical"
+                        >
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" domain={[0, 100]} />
+                          <YAxis type="category" dataKey="name" width={100} />
+                          <Tooltip
+                            formatter={(value) => [
+                              `${value.toFixed(1)}%`,
+                              "Progress",
+                            ]}
+                          />
+                          <Bar
+                            dataKey="progress"
+                            fill="#8884d8"
+                            name="Progress %"
+                          >
+                            {reportData.projectProgress.map((entry, index) => (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={
+                                  entry.progress > 75
+                                    ? "#00C49F"
+                                    : entry.progress > 50
+                                    ? "#FFBB28"
+                                    : "#FF8042"
+                                }
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="text-center py-5 text-muted">
+                        No project progress data available for the selected
+                        filters.
+                      </div>
+                    )}
+                  </Card.Body>
+                </Card>
+              </Col>
+            </Row>
+          </Tab>
+
+          <Tab eventKey="details" title="Task Details">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Task List</h5>
+              </Card.Header>
+              <Card.Body>
+                {reportData.tasks.length > 0 ? (
+                  <div className="table-responsive">
+                    <table className="table table-hover">
+                      <thead>
+                        <tr>
+                          <th>Task</th>
+                          <th>Project</th>
+                          <th>Status</th>
+                          <th>Priority</th>
+                          <th>Due Date</th>
+                          <th>Assigned To</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-5 text-muted">
-                  No tasks found for the selected filters and date range.
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Tab>
-      </Tabs>
+                      </thead>
+                      <tbody>
+                        {reportData.tasks.map((task) => (
+                          <tr key={task.id}>
+                            <td>{task.title}</td>
+                            <td>{task.project?.name || "N/A"}</td>
+                            <td>
+                              <Badge
+                                bg={
+                                  task.status === "Completed"
+                                    ? "success"
+                                    : task.status === "in_progress"
+                                    ? "primary"
+                                    : task.status === "on_hold"
+                                    ? "warning"
+                                    : task.status === "cancelled"
+                                    ? "danger"
+                                    : "secondary"
+                                }
+                              >
+                                {task.status}
+                              </Badge>
+                            </td>
+                            <td>
+                              <Badge
+                                bg={
+                                  task.priority === 1
+                                    ? "danger"
+                                    : task.priority === 2
+                                    ? "warning"
+                                    : task.priority === 3
+                                    ? "info"
+                                    : "secondary"
+                                }
+                              >
+                                {task.priority === 1
+                                  ? "Critical"
+                                  : task.priority === 2
+                                  ? "High"
+                                  : task.priority === 3
+                                  ? "Medium"
+                                  : "Low"}
+                              </Badge>
+                            </td>
+                            <td>
+                              {task.due_date
+                                ? format(new Date(task.due_date), "MMM d, yyyy")
+                                : "N/A"}
+                            </td>
+                            <td>
+                              {task.assignments && task.assignments.length > 0
+                                ? task.assignments
+                                    .map((a) =>
+                                      a.profiles
+                                        ? `${a.profiles.first_name} ${a.profiles.last_name}`
+                                        : "Unknown"
+                                    )
+                                    .join(", ")
+                                : "Unassigned"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-5 text-muted">
+                    No tasks found for the selected filters and date range.
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Tab>
+        </Tabs>
+      </div>
     </Container>
   );
 };

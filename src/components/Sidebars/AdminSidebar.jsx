@@ -33,6 +33,7 @@ const AdminSidebar = () => {
           to="/LogChanges"
           className={location.pathname === "/LogChanges" ? "active" : ""}
         >
+          <i className="bi bi-clock-history me-2"></i>
           Log Changes
         </Link>
         <Link

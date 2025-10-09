@@ -100,6 +100,7 @@ const EmployeeDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
 
   // NEW: Notification state
   const [notifications, setNotifications] = useState([]);
@@ -116,6 +117,14 @@ const EmployeeDashboard = () => {
         setUser(currentUser);
 
         if (currentUser) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("first_name, last_name, email")
+            .eq("id", currentUser.id)
+            .single();
+
+          setUserProfile(profile);
+
           // Fetch tasks using the same function as Employee Task List
           const userTasks = await fetchMyTasks(currentUser.id);
           setTasks(userTasks);
@@ -179,15 +188,16 @@ const EmployeeDashboard = () => {
 
   // Calculate stats from tasks (same status values as Employee Task List)
   const taskStats = {
-    total: tasks.length,
+    total: tasks.filter((t) => t.status !== "cancelled").length,
     todo: tasks.filter((t) => t.status === "todo").length,
     in_progress: tasks.filter((t) => t.status === "in_progress").length,
     on_hold: tasks.filter((t) => t.status === "on_hold").length,
     Completed: tasks.filter((t) => t.status === "Completed").length,
   };
 
-  // Get upcoming tasks (due in the next 7 days)
+  // Get upcoming tasks (due in the next 7 days) - also exclude cancelled
   const upcomingTasks = tasks
+    .filter((task) => task.status !== "cancelled") // Add this filter
     .filter((task) => {
       if (!task.due_date) return false;
       const dueDate = new Date(task.due_date);
@@ -290,7 +300,12 @@ const EmployeeDashboard = () => {
             <div>
               <h2 className="mb-1 fw-bold">Dashboard</h2>
               <p className="text-muted mb-0">
-                Welcome back, <strong>{user.email}</strong>
+                Welcome back,{" "}
+                <strong>
+                  {userProfile
+                    ? `${userProfile.first_name} ${userProfile.last_name}`
+                    : user?.email}
+                </strong>
               </p>
             </div>
             <div className="d-flex gap-2">

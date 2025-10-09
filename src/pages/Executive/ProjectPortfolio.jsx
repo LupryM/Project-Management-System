@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
   Container,
   Row,
@@ -43,6 +45,7 @@ import {
   BsCheckCircle,
   BsExclamationTriangle,
   BsCollection,
+  BsDownload,
 } from "react-icons/bs";
 
 const ProjectPortfolioDashboard = () => {
@@ -52,6 +55,7 @@ const ProjectPortfolioDashboard = () => {
   const [teams, setTeams] = useState([]);
   const [timeFrame, setTimeFrame] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
+  const [exporting, setExporting] = useState(false);
 
   // Fetch data
   useEffect(() => {
@@ -94,6 +98,105 @@ const ProjectPortfolioDashboard = () => {
 
     fetchData();
   }, []);
+
+  const exportToPDF = async () => {
+    setExporting(true);
+
+    try {
+      // Get the main content element to capture
+      const element = document.getElementById("project-report-content");
+
+      if (!element) {
+        throw new Error("Report content not found");
+      }
+
+      // Capture the entire content as canvas
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: false,
+        scrollY: -window.scrollY,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
+
+      // Create PDF
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        0,
+        position,
+        imgWidth,
+        imgHeight
+      );
+      heightLeft -= pageHeight;
+
+      // Add additional pages if content is longer than one page
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(
+          canvas.toDataURL("image/png"),
+          "PNG",
+          0,
+          position,
+          imgWidth,
+          imgHeight
+        );
+        heightLeft -= pageHeight;
+      }
+
+      // Add header with timestamp and page numbers
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        // Add page number footer
+        pdf.setFontSize(10);
+        pdf.setTextColor(100);
+        pdf.text(
+          `Page ${i} of ${totalPages}`,
+          pdf.internal.pageSize.getWidth() / 2,
+          pdf.internal.pageSize.getHeight() - 10,
+          { align: "center" }
+        );
+        // Add timestamp on first page - MOVED TO TOP RIGHT
+        if (i === 1) {
+          pdf.setFontSize(8);
+          pdf.setTextColor(150);
+          // Position in top right corner (page width - margin, small top margin)
+          pdf.text(
+            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+            pdf.internal.pageSize.getWidth() - 10, // Right margin
+            10, // Top margin
+            { align: "right" }
+          );
+        }
+      }
+
+      // Save the PDF
+      const fileName = `Project-Portfolio-Report-${format(
+        new Date(),
+        "yyyy-MM-dd"
+      )}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error("PDF Export Error:", error);
+      setError("Failed to generate PDF: " + error.message);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Process data for visualizations
   const processedData = useMemo(() => {
@@ -250,346 +353,370 @@ const ProjectPortfolioDashboard = () => {
 
   return (
     <Container fluid className="py-4">
-      <Row className="mb-4">
-        <Col>
-          <h2 className="d-flex align-items-center">
-            <BsCollection className="me-2" /> Project Portfolio Dashboard
-          </h2>
-          <p className="text-muted">
-            Overview of all projects across the organization
-          </p>
-        </Col>
-        <Col xs="auto">
-          <div className="d-flex gap-2">
-            <Form.Select
-              value={timeFrame}
-              onChange={(e) => setTimeFrame(e.target.value)}
-              style={{ width: "150px" }}
-            >
-              <option value="all">All Time</option>
-              <option value="month">This Month</option>
-              <option value="quarter">This Quarter</option>
-            </Form.Select>
-            <Form.Select
-              value={teamFilter}
-              onChange={(e) => setTeamFilter(e.target.value)}
-              style={{ width: "200px" }}
-            >
-              <option value="all">All Teams</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </Form.Select>
-          </div>
-        </Col>
-      </Row>
-
-      {error && (
-        <Alert
-          variant="danger"
-          className="mb-4"
-          onClose={() => setError(null)}
-          dismissible
-        >
-          {error}
-        </Alert>
-      )}
-
-      {/* Summary Cards */}
-      <Row className="mb-4">
-        <Col md={3} className="mb-3">
-          <Card className="text-center h-100">
-            <Card.Body>
-              <h3 className="text-primary">{processedData.totalProjects}</h3>
-              <Card.Text>Total Projects</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center h-100">
-            <Card.Body>
-              <h3 className="text-success">
-                {processedData.completedProjects}
-              </h3>
-              <Card.Text>Completed</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center h-100">
-            <Card.Body>
-              <h3 className="text-warning">
-                {processedData.inProgressProjects}
-              </h3>
-              <Card.Text>In Progress</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center h-100">
-            <Card.Body>
-              <h3 className="text-danger">{processedData.overdueProjects}</h3>
-              <Card.Text>Overdue</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-
-      <Row>
-        {/* Project Status Distribution */}
-        <Col md={6} className="mb-4">
-          <Card className="h-100">
-            <Card.Header>
-              <h5 className="mb-0">Project Status Distribution</h5>
-            </Card.Header>
-            <Card.Body>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={processedData.statusDistribution}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(0)}%`
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {processedData.statusDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Team Performance */}
-        <Col md={6} className="mb-4">
-          <Card className="h-100">
-            <Card.Header>
-              <h5 className="mb-0">Projects by Team</h5>
-            </Card.Header>
-            <Card.Body>
-              {processedData.teamDistribution.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={processedData.teamDistribution}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar
-                      dataKey="projects"
-                      name="Total Projects"
-                      fill="#8884d8"
-                    />
-                    <Bar dataKey="completed" name="Completed" fill="#00C49F" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="text-center py-5 text-muted">
-                  No team data available
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Project Timeline Progress */}
-        <Col md={6} className="mb-4">
-          <Card className="h-100">
-            <Card.Header>
-              <h5 className="mb-0">Project Timeline Progress</h5>
-            </Card.Header>
-            <Card.Body>
-              {processedData.timelineData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart
-                    data={processedData.timelineData}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" domain={[0, 100]} />
-                    <YAxis type="category" dataKey="name" />
-                    <Tooltip formatter={(value) => [`${value}%`, "Progress"]} />
-                    <Bar dataKey="progress" name="Progress %">
-                      {processedData.timelineData.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            entry.isBehind
-                              ? "#FF8042"
-                              : entry.progress > 75
-                              ? "#00C49F"
-                              : entry.progress > 50
-                              ? "#FFBB28"
-                              : "#0088FE"
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="text-center py-5 text-muted">
-                  No timeline data available
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Task Completion Rates */}
-        <Col md={6} className="mb-4">
-          <Card className="h-100">
-            <Card.Header>
-              <h5 className="mb-0">Task Completion by Project</h5>
-            </Card.Header>
-            <Card.Body>
-              {processedData.projectTaskMetrics.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={processedData.projectTaskMetrics}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="name"
-                      angle={-45}
-                      textAnchor="end"
-                      height={80}
-                    />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="completionRate"
-                      name="Completion Rate %"
-                      stroke="#8884d8"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="text-center py-5 text-muted">
-                  No task data available
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Project List */}
-      <Card className="mb-4">
-        <Card.Header>
-          <h5 className="mb-0">
-            All Projects ({processedData.filteredProjects.length})
-          </h5>
-        </Card.Header>
-        <Card.Body>
-          <div className="table-responsive">
-            <table className="table table-hover">
-              <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>Team</th>
-                  <th>Manager</th>
-                  <th>Status</th>
-                  <th>Tasks</th>
-                  <th>Timeline</th>
-                  <th>Progress</th>
-                </tr>
-              </thead>
-              <tbody>
-                {processedData.filteredProjects.map((project) => {
-                  const tasks = project.tasks || [];
-                  const completedTasks = tasks.filter(
-                    (t) => t.status === "Completed"
-                  ).length;
-                  const completionRate =
-                    tasks.length > 0
-                      ? (completedTasks / tasks.length) * 100
-                      : 0;
-
-                  return (
-                    <tr key={project.id}>
-                      <td>
-                        <strong>{project.name}</strong>
-                        <br />
-                        <small className="text-muted">
-                          {project.description}
-                        </small>
-                      </td>
-                      <td>{project.team?.name || "Unassigned"}</td>
-                      <td>
-                        {project.manager
-                          ? `${project.manager.first_name} ${project.manager.last_name}`
-                          : "Unassigned"}
-                      </td>
-                      <td>
-                        <Badge
-                          bg={
-                            project.status === "completed"
-                              ? "success"
-                              : project.status === "in_progress"
-                              ? "primary"
-                              : project.status === "on_hold"
-                              ? "warning"
-                              : "secondary"
-                          }
-                        >
-                          {project.status.replace("_", " ")}
-                        </Badge>
-                      </td>
-                      <td>
-                        {tasks.length} total
-                        <br />
-                        <small>{completedTasks} completed</small>
-                      </td>
-                      <td>
-                        {project.start_date && project.due_date ? (
-                          <>
-                            {format(parseISO(project.start_date), "MMM d")} -{" "}
-                            {format(parseISO(project.due_date), "MMM d")}
-                          </>
-                        ) : (
-                          "Not set"
-                        )}
-                      </td>
-                      <td>
-                        <ProgressBar
-                          now={completionRate}
-                          variant={
-                            completionRate > 75
-                              ? "success"
-                              : completionRate > 50
-                              ? "warning"
-                              : "danger"
-                          }
-                          style={{ height: "8px" }}
-                        />
-                        <small>{Math.round(completionRate)}% complete</small>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {processedData.filteredProjects.length === 0 && (
-            <div className="text-center py-5 text-muted">
-              No projects found matching your filters
+      <div id="project-report-content">
+        <Row className="mb-4">
+          <Col>
+            <h2 className="d-flex align-items-center">
+              <BsCollection className="me-2" /> Project Portfolio Dashboard
+            </h2>
+            <p className="text-muted">
+              Overview of all projects across the organization
+            </p>
+          </Col>
+          <Col xs="auto">
+            <div className="d-flex gap-2">
+              <Form.Select
+                value={timeFrame}
+                onChange={(e) => setTimeFrame(e.target.value)}
+                style={{ width: "150px" }}
+              >
+                <option value="all">All Time</option>
+                <option value="month">This Month</option>
+                <option value="quarter">This Quarter</option>
+              </Form.Select>
+              <Form.Select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                style={{ width: "200px" }}
+              >
+                <option value="all">All Teams</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </Form.Select>
+              <Button
+                variant="outline-primary"
+                onClick={exportToPDF}
+                disabled={exporting || loading}
+              >
+                {exporting ? (
+                  <>
+                    <Spinner animation="border" size="sm" className="me-2" />
+                    Generating PDF...
+                  </>
+                ) : (
+                  <>
+                    <BsDownload className="me-2" /> Export PDF
+                  </>
+                )}
+              </Button>
             </div>
-          )}
-        </Card.Body>
-      </Card>
+          </Col>
+        </Row>
+
+        {error && (
+          <Alert
+            variant="danger"
+            className="mb-4"
+            onClose={() => setError(null)}
+            dismissible
+          >
+            {error}
+          </Alert>
+        )}
+
+        {/* Summary Cards */}
+        <Row className="mb-4">
+          <Col md={3} className="mb-3">
+            <Card className="text-center h-100">
+              <Card.Body>
+                <h3 className="text-primary">{processedData.totalProjects}</h3>
+                <Card.Text>Total Projects</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center h-100">
+              <Card.Body>
+                <h3 className="text-success">
+                  {processedData.completedProjects}
+                </h3>
+                <Card.Text>Completed</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center h-100">
+              <Card.Body>
+                <h3 className="text-warning">
+                  {processedData.inProgressProjects}
+                </h3>
+                <Card.Text>In Progress</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center h-100">
+              <Card.Body>
+                <h3 className="text-danger">{processedData.overdueProjects}</h3>
+                <Card.Text>Overdue</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+
+        <Row>
+          {/* Project Status Distribution */}
+          <Col md={6} className="mb-4">
+            <Card className="h-100">
+              <Card.Header>
+                <h5 className="mb-0">Project Status Distribution</h5>
+              </Card.Header>
+              <Card.Body>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={processedData.statusDistribution}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {processedData.statusDistribution.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Team Performance */}
+          <Col md={6} className="mb-4">
+            <Card className="h-100">
+              <Card.Header>
+                <h5 className="mb-0">Projects by Team</h5>
+              </Card.Header>
+              <Card.Body>
+                {processedData.teamDistribution.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={processedData.teamDistribution}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar
+                        dataKey="projects"
+                        name="Total Projects"
+                        fill="#8884d8"
+                      />
+                      <Bar
+                        dataKey="completed"
+                        name="Completed"
+                        fill="#00C49F"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-5 text-muted">
+                    No team data available
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Project Timeline Progress */}
+          <Col md={6} className="mb-4">
+            <Card className="h-100">
+              <Card.Header>
+                <h5 className="mb-0">Project Timeline Progress</h5>
+              </Card.Header>
+              <Card.Body>
+                {processedData.timelineData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={processedData.timelineData}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" domain={[0, 100]} />
+                      <YAxis type="category" dataKey="name" />
+                      <Tooltip
+                        formatter={(value) => [`${value}%`, "Progress"]}
+                      />
+                      <Bar dataKey="progress" name="Progress %">
+                        {processedData.timelineData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              entry.isBehind
+                                ? "#FF8042"
+                                : entry.progress > 75
+                                ? "#00C49F"
+                                : entry.progress > 50
+                                ? "#FFBB28"
+                                : "#0088FE"
+                            }
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-5 text-muted">
+                    No timeline data available
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Task Completion Rates */}
+          <Col md={6} className="mb-4">
+            <Card className="h-100">
+              <Card.Header>
+                <h5 className="mb-0">Task Completion by Project</h5>
+              </Card.Header>
+              <Card.Body>
+                {processedData.projectTaskMetrics.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={processedData.projectTaskMetrics}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="name"
+                        angle={-45}
+                        textAnchor="end"
+                        height={80}
+                      />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="completionRate"
+                        name="Completion Rate %"
+                        stroke="#8884d8"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-5 text-muted">
+                    No task data available
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Project List */}
+        <Card className="mb-4">
+          <Card.Header>
+            <h5 className="mb-0">
+              All Projects ({processedData.filteredProjects.length})
+            </h5>
+          </Card.Header>
+          <Card.Body>
+            <div className="table-responsive">
+              <table className="table table-hover">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Team</th>
+                    <th>Manager</th>
+                    <th>Status</th>
+                    <th>Tasks</th>
+                    <th>Timeline</th>
+                    <th>Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {processedData.filteredProjects.map((project) => {
+                    const tasks = project.tasks || [];
+                    const completedTasks = tasks.filter(
+                      (t) => t.status === "Completed"
+                    ).length;
+                    const completionRate =
+                      tasks.length > 0
+                        ? (completedTasks / tasks.length) * 100
+                        : 0;
+
+                    return (
+                      <tr key={project.id}>
+                        <td>
+                          <strong>{project.name}</strong>
+                          <br />
+                          <small className="text-muted">
+                            {project.description}
+                          </small>
+                        </td>
+                        <td>{project.team?.name || "Unassigned"}</td>
+                        <td>
+                          {project.manager
+                            ? `${project.manager.first_name} ${project.manager.last_name}`
+                            : "Unassigned"}
+                        </td>
+                        <td>
+                          <Badge
+                            bg={
+                              project.status === "completed"
+                                ? "success"
+                                : project.status === "in_progress"
+                                ? "primary"
+                                : project.status === "on_hold"
+                                ? "warning"
+                                : "secondary"
+                            }
+                          >
+                            {project.status.replace("_", " ")}
+                          </Badge>
+                        </td>
+                        <td>
+                          {tasks.length} total
+                          <br />
+                          <small>{completedTasks} completed</small>
+                        </td>
+                        <td>
+                          {project.start_date && project.due_date ? (
+                            <>
+                              {format(parseISO(project.start_date), "MMM d")} -{" "}
+                              {format(parseISO(project.due_date), "MMM d")}
+                            </>
+                          ) : (
+                            "Not set"
+                          )}
+                        </td>
+                        <td>
+                          <ProgressBar
+                            now={completionRate}
+                            variant={
+                              completionRate > 75
+                                ? "success"
+                                : completionRate > 50
+                                ? "warning"
+                                : "danger"
+                            }
+                            style={{ height: "8px" }}
+                          />
+                          <small>{Math.round(completionRate)}% complete</small>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {processedData.filteredProjects.length === 0 && (
+              <div className="text-center py-5 text-muted">
+                No projects found matching your filters
+              </div>
+            )}
+          </Card.Body>
+        </Card>
+      </div>
     </Container>
   );
 };

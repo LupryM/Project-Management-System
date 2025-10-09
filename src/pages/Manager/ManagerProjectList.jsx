@@ -594,10 +594,8 @@ const ManagerProjectList = () => {
       await logActivity({
         type: "project_deleted",
         details: `Deleted project: "${project.name}" (ID: ${project.id})`,
-        projectId: project.id,
         userId: session.user.id,
       });
-
       // Refresh projects list
       fetchProjects();
     } catch (error) {

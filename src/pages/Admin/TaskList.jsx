@@ -156,18 +156,7 @@ const TaskList = ({ projectId, onTaskUpdated }) => {
                 </div>
 
                 <div className="ms-3">
-                  <Form.Select
-                    size="sm"
-                    value={task.status}
-                    onChange={(e) =>
-                      handleStatusChange(task.id, e.target.value)
-                    }
-                  >
-                    <option value="todo">To Do</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="review">Review</option>
-                    <option value="completed">Completed</option>
-                  </Form.Select>
+         
                 </div>
               </div>
             </Card.Body>

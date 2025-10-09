@@ -222,7 +222,7 @@ export default function EmployeeProjectList() {
           <h2 className="mb-1">
             <BsFolder className="me-2" /> My Projects
           </h2>
-          <p className="text-muted mb-0">{user?.email}</p>
+          <p className="text-muted mb-0">View projects you are involved in</p>
         </Col>
         <Col className="text-end"></Col>
       </Row>

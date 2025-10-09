@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
   Container,
   Row,
@@ -77,6 +79,7 @@ const EmployeeAnalyticsDashboard = () => {
   const [tasks, setTasks] = useState([]);
   const [activityLogs, setActivityLogs] = useState([]);
   const [timeFrame, setTimeFrame] = useState("month");
+  const [exporting, setExporting] = useState(false);
 
   // Fetch data on component mount
   useEffect(() => {
@@ -140,6 +143,105 @@ const EmployeeAnalyticsDashboard = () => {
       setError("Failed to load data: " + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const exportToPDF = async () => {
+    setExporting(true);
+
+    try {
+      // Get the main content element to capture
+      const element = document.getElementById("employee-report-content");
+
+      if (!element) {
+        throw new Error("Report content not found");
+      }
+
+      // Capture the entire content as canvas
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: false,
+        scrollY: -window.scrollY,
+        width: element.scrollWidth,
+        height: element.scrollHeight,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+      });
+
+      // Create PDF
+      const pdf = new jsPDF("p", "mm", "a4");
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        0,
+        position,
+        imgWidth,
+        imgHeight
+      );
+      heightLeft -= pageHeight;
+
+      // Add additional pages if content is longer than one page
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(
+          canvas.toDataURL("image/png"),
+          "PNG",
+          0,
+          position,
+          imgWidth,
+          imgHeight
+        );
+        heightLeft -= pageHeight;
+      }
+
+      // Add header with timestamp and page numbers
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        // Add page number footer
+        pdf.setFontSize(10);
+        pdf.setTextColor(100);
+        pdf.text(
+          `Page ${i} of ${totalPages}`,
+          pdf.internal.pageSize.getWidth() / 2,
+          pdf.internal.pageSize.getHeight() - 10,
+          { align: "center" }
+        );
+        // Add timestamp on first page - MOVED TO TOP RIGHT
+        if (i === 1) {
+          pdf.setFontSize(8);
+          pdf.setTextColor(150);
+          // Position in top right corner (page width - margin, small top margin)
+          pdf.text(
+            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+            pdf.internal.pageSize.getWidth() - 10, // Right margin
+            10, // Top margin
+            { align: "right" }
+          );
+        }
+      }
+
+      // Save the PDF
+      const fileName = `Employee-Analytics-Report-${format(
+        new Date(),
+        "yyyy-MM-dd"
+      )}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error("PDF Export Error:", error);
+      setError("Failed to generate PDF: " + error.message);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -330,369 +432,314 @@ const EmployeeAnalyticsDashboard = () => {
 
   return (
     <Container fluid className="py-4">
-      <Row className="mb-4">
-        <Col>
-          <h2 className="d-flex align-items-center">
-            <BsPeople className="me-2" /> Employee Analytics Dashboard
-          </h2>
-          <p className="text-muted">
-            Comprehensive insights into employee performance and activity
-          </p>
-        </Col>
-        <Col xs="auto">
-          <div className="d-flex gap-2">
-            <Form.Select
-              value={timeFrame}
-              onChange={(e) => setTimeFrame(e.target.value)}
-              style={{ width: "150px" }}
-            >
-              <option value="week">Last Week</option>
-              <option value="month">This Month</option>
-              <option value="quarter">This Quarter</option>
-              <option value="all">All Time</option>
-            </Form.Select>
-            <Button variant="outline-primary">
-              <BsDownload className="me-2" /> Export
-            </Button>
-          </div>
-        </Col>
-      </Row>
+      <div id="employee-report-content">
+        <Row className="mb-4">
+          <Col>
+            <h2 className="d-flex align-items-center">
+              <BsPeople className="me-2" /> Employee Analytics Dashboard
+            </h2>
+            <p className="text-muted">
+              Comprehensive insights into employee performance and activity
+            </p>
+          </Col>
+          <Col xs="auto">
+            <div className="d-flex gap-2">
+              <Form.Select
+                value={timeFrame}
+                onChange={(e) => setTimeFrame(e.target.value)}
+                style={{ width: "150px" }}
+              >
+                <option value="week">Last Week</option>
+                <option value="month">This Month</option>
+                <option value="quarter">This Quarter</option>
+                <option value="all">All Time</option>
+              </Form.Select>
+              <Button 
+                variant="outline-primary" 
+                onClick={exportToPDF}
+                disabled={exporting || loading}
+              >
+                {exporting ? (
+                  <>
+                    <Spinner animation="border" size="sm" className="me-2" />
+                    Generating PDF...
+                  </>
+                ) : (
+                  <>
+                    <BsDownload className="me-2" /> Export PDF
+                  </>
+                )}
+              </Button>
+            </div>
+          </Col>
+        </Row>
 
-      {error && (
-        <Alert
-          variant="danger"
-          className="mb-4"
-          onClose={() => setError(null)}
-          dismissible
-        >
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert
+            variant="danger"
+            className="mb-4"
+            onClose={() => setError(null)}
+            dismissible
+          >
+            {error}
+          </Alert>
+        )}
 
-      {/* Summary Cards */}
-      <Row className="mb-4">
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-primary">{analyticsData.totalEmployees}</h3>
-              <Card.Text>Total Employees</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-success">{analyticsData.activeEmployees}</h3>
-              <Card.Text>Active Employees</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-warning">
-                {analyticsData.inactiveEmployees}
-              </h3>
-              <Card.Text>Inactive Employees</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-        <Col md={3} className="mb-3">
-          <Card className="text-center">
-            <Card.Body>
-              <h3 className="text-info">{analyticsData.completedTasks}</h3>
-              <Card.Text>Tasks Completed</Card.Text>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+        {/* Summary Cards */}
+        <Row className="mb-4">
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-primary">{analyticsData.totalEmployees}</h3>
+                <Card.Text>Total Employees</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-success">{analyticsData.activeEmployees}</h3>
+                <Card.Text>Active Employees</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-warning">
+                  {analyticsData.inactiveEmployees}
+                </h3>
+                <Card.Text>Inactive Employees</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+          <Col md={3} className="mb-3">
+            <Card className="text-center">
+              <Card.Body>
+                <h3 className="text-info">{analyticsData.completedTasks}</h3>
+                <Card.Text>Tasks Completed</Card.Text>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
 
-      <Row>
-        {/* Role Distribution */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Role Distribution</h5>
-            </Card.Header>
-            <Card.Body>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={analyticsData.roleDistributionChart}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(0)}%`
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {analyticsData.roleDistributionChart.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Status Distribution */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Employee Status Distribution</h5>
-            </Card.Header>
-            <Card.Body>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={analyticsData.statusDistributionChart}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(0)}%`
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {analyticsData.statusDistributionChart.map(
-                      (entry, index) => (
+        <Row>
+          {/* Role Distribution */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Role Distribution</h5>
+              </Card.Header>
+              <Card.Body>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={analyticsData.roleDistributionChart}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {analyticsData.roleDistributionChart.map((entry, index) => (
                         <Cell
                           key={`cell-${index}`}
                           fill={COLORS[index % COLORS.length]}
                         />
-                      )
-                    )}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Top Performers */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0 d-flex align-items-center">
-                <BsPersonCheck className="me-2" /> Top Performers (Completed
-                Tasks)
-              </h5>
-            </Card.Header>
-            <Card.Body>
-              <ListGroup variant="flush">
-                {analyticsData.topPerformers.map((employee, index) => (
-                  <ListGroup.Item
-                    key={employee.id}
-                    className="d-flex justify-content-between align-items-center"
-                  >
-                    <div>
-                      <span className="fw-bold me-2">{index + 1}.</span>
-                      {employee.first_name} {employee.last_name}
-                      <Badge bg="light" text="dark" className="ms-2">
-                        {employee.role}
-                      </Badge>
-                    </div>
-                    <div>
-                      <Badge bg="success" className="me-2">
-                        {employee.completedTasks} completed
-                      </Badge>
-                      <Badge bg="primary">
-                        {Math.round(employee.completionRate)}%
-                      </Badge>
-                    </div>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
-              {analyticsData.topPerformers.length === 0 && (
-                <div className="text-center py-3 text-muted">
-                  No performance data available
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Employees with Most Overdue Tasks */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header className="bg-danger text-white">
-              <h5 className="mb-0 d-flex align-items-center">
-                <BsExclamationTriangle className="me-2" /> Most Overdue Tasks
-              </h5>
-            </Card.Header>
-            <Card.Body>
-              <ListGroup variant="flush">
-                {analyticsData.mostOverdue.map((employee, index) => (
-                  <ListGroup.Item
-                    key={employee.id}
-                    className="d-flex justify-content-between align-items-center"
-                  >
-                    <div>
-                      <span className="fw-bold me-2">{index + 1}.</span>
-                      {employee.first_name} {employee.last_name}
-                      <Badge bg="light" text="dark" className="ms-2">
-                        {employee.role}
-                      </Badge>
-                    </div>
-                    <Badge bg="danger">{employee.overdueTasks} overdue</Badge>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
-              {analyticsData.mostOverdue.length === 0 && (
-                <div className="text-center py-3 text-success">
-                  <BsCheckCircle className="me-2" />
-                  No employees with overdue tasks!
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-
-        {/* Workload Distribution */}
-        <Col md={6} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Workload Distribution</h5>
-            </Card.Header>
-            <Card.Body>
-              {analyticsData.workloadData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart
-                    data={analyticsData.workloadData}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      tick={{ fontSize: 12 }}
-                    />
+                      ))}
+                    </Pie>
                     <Tooltip />
                     <Legend />
-                    <Bar dataKey="tasks" name="Total Tasks" fill="#8884d8" />
-                    <Bar dataKey="completed" name="Completed" fill="#00C49F" />
-                    <Bar dataKey="overdue" name="Overdue" fill="#FF8042" />
-                  </BarChart>
+                  </PieChart>
                 </ResponsiveContainer>
-              ) : (
-                <div className="text-center py-5 text-muted">
-                  No workload data available
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
+              </Card.Body>
+            </Card>
+          </Col>
 
-        {/* Recent Onboarding */}
-        <Col md={6} className="mb-4">
-          <Card className="h-100">
-            <Card.Header>
-              <h5 className="mb-0 d-flex align-items-center">
-                <BsPersonDash className="me-2" /> Recent Onboarding (Last 30
-                Days)
-              </h5>
-            </Card.Header>
-            <Card.Body
-              className="p-0"
-              style={{ height: "300px", overflowY: "auto" }}
-            >
-              <ListGroup variant="flush">
-                {analyticsData.recentOnboarding.map((employee) => (
-                  <ListGroup.Item key={employee.id}>
-                    <div className="d-flex justify-content-between align-items-center">
+          {/* Status Distribution */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Employee Status Distribution</h5>
+              </Card.Header>
+              <Card.Body>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={analyticsData.statusDistributionChart}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) =>
+                        `${name}: ${(percent * 100).toFixed(0)}%`
+                      }
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {analyticsData.statusDistributionChart.map(
+                        (entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        )
+                      )}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Top Performers */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0 d-flex align-items-center">
+                  <BsPersonCheck className="me-2" /> Top Performers (Completed
+                  Tasks)
+                </h5>
+              </Card.Header>
+              <Card.Body>
+                <ListGroup variant="flush">
+                  {analyticsData.topPerformers.map((employee, index) => (
+                    <ListGroup.Item
+                      key={employee.id}
+                      className="d-flex justify-content-between align-items-center"
+                    >
                       <div>
-                        <h6 className="mb-0">
-                          {employee.first_name} {employee.last_name}
-                        </h6>
-                        <small className="text-muted">{employee.email}</small>
+                        <span className="fw-bold me-2">{index + 1}.</span>
+                        {employee.first_name} {employee.last_name}
+                        <Badge bg="light" text="dark" className="ms-2">
+                          {employee.role}
+                        </Badge>
+                      </div>
+                      <div>
+                        <Badge bg="success" className="me-2">
+                          {employee.completedTasks} completed
+                        </Badge>
+                        <Badge bg="primary">
+                          {Math.round(employee.completionRate)}%
+                        </Badge>
+                      </div>
+                    </ListGroup.Item>
+                  ))}
+                </ListGroup>
+                {analyticsData.topPerformers.length === 0 && (
+                  <div className="text-center py-3 text-muted">
+                    No performance data available
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Employees with Most Overdue Tasks */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header className="bg-danger text-white">
+                <h5 className="mb-0 d-flex align-items-center">
+                  <BsExclamationTriangle className="me-2" /> Most Overdue Tasks
+                </h5>
+              </Card.Header>
+              <Card.Body>
+                <ListGroup variant="flush">
+                  {analyticsData.mostOverdue.map((employee, index) => (
+                    <ListGroup.Item
+                      key={employee.id}
+                      className="d-flex justify-content-between align-items-center"
+                    >
+                      <div>
+                        <span className="fw-bold me-2">{index + 1}.</span>
+                        {employee.first_name} {employee.last_name}
+                        <Badge bg="light" text="dark" className="ms-2">
+                          {employee.role}
+                        </Badge>
+                      </div>
+                      <Badge bg="danger">{employee.overdueTasks} overdue</Badge>
+                    </ListGroup.Item>
+                  ))}
+                </ListGroup>
+                {analyticsData.mostOverdue.length === 0 && (
+                  <div className="text-center py-3 text-success">
+                    <BsCheckCircle className="me-2" />
+                    No employees with overdue tasks!
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Workload Distribution */}
+          <Col md={6} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Workload Distribution</h5>
+              </Card.Header>
+              <Card.Body>
+                {analyticsData.workloadData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={analyticsData.workloadData}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 100, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        tick={{ fontSize: 12 }}
+                      />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="tasks" name="Total Tasks" fill="#8884d8" />
+                      <Bar dataKey="completed" name="Completed" fill="#00C49F" />
+                      <Bar dataKey="overdue" name="Overdue" fill="#FF8042" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-5 text-muted">
+                    No workload data available
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+
+          {/* Recent Onboarding */}
+          <Col md={6} className="mb-4">
+            <Card className="h-100">
+              <Card.Header>
+                <h5 className="mb-0 d-flex align-items-center">
+                  <BsPersonDash className="me-2" /> Recent Onboarding (Last 30
+                  Days)
+                </h5>
+              </Card.Header>
+              <Card.Body
+                className="p-0"
+                style={{ height: "300px", overflowY: "auto" }}
+              >
+                <ListGroup variant="flush">
+                  {analyticsData.recentOnboarding.map((employee) => (
+                    <ListGroup.Item key={employee.id}>
+                      <div className="d-flex justify-content-between align-items-center">
                         <div>
-                          <Badge bg="info" className="me-2">
-                            {employee.role}
-                          </Badge>
-                          <Badge
-                            bg={
-                              employee.status === "Active"
-                                ? "success"
-                                : "secondary"
-                            }
-                          >
-                            {employee.status}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="text-end">
-                        <small className="text-muted">
-                          Joined:{" "}
-                          {format(parseISO(employee.created_at), "MMM d, yyyy")}
-                        </small>
-                      </div>
-                    </div>
-                  </ListGroup.Item>
-                ))}
-              </ListGroup>
-              {analyticsData.recentOnboarding.length === 0 && (
-                <div className="text-center py-5 text-muted">
-                  No new employees in the last 30 days
-                </div>
-              )}
-            </Card.Body>
-          </Card>
-        </Col>
-        {/* Detailed Employee Performance Table */}
-        <Col md={12} className="mb-4">
-          <Card>
-            <Card.Header>
-              <h5 className="mb-0">Employee Performance Details</h5>
-            </Card.Header>
-            <Card.Body>
-              <div className="table-responsive">
-                <Table striped hover>
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Total Tasks</th>
-                      <th>Completed</th>
-                      <th>Overdue</th>
-                      <th>Completion Rate</th>
-                      <th>Recent Activity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {analyticsData.employeePerformance
-                      .sort((a, b) => b.taskCount - a.taskCount)
-                      .map((employee) => (
-                        <tr key={employee.id}>
-                          <td>
-                            <div>
-                              <strong>
-                                {employee.first_name} {employee.last_name}
-                              </strong>
-                              <div className="text-muted small">
-                                {employee.email}
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <Badge bg="info">{employee.role}</Badge>
-                          </td>
-                          <td>
+                          <h6 className="mb-0">
+                            {employee.first_name} {employee.last_name}
+                          </h6>
+                          <small className="text-muted">{employee.email}</small>
+                          <div>
+                            <Badge bg="info" className="me-2">
+                              {employee.role}
+                            </Badge>
                             <Badge
                               bg={
                                 employee.status === "Active"
@@ -702,51 +749,121 @@ const EmployeeAnalyticsDashboard = () => {
                             >
                               {employee.status}
                             </Badge>
-                          </td>
-                          <td>{employee.taskCount}</td>
-                          <td>
-                            <span className="text-success">
-                              {employee.completedTasks}
-                            </span>
-                          </td>
-                          <td>
-                            {employee.overdueTasks > 0 ? (
-                              <span className="text-danger">
-                                {employee.overdueTasks}
-                              </span>
-                            ) : (
-                              <span className="text-muted">0</span>
-                            )}
-                          </td>
-                          <td>
-                            <div className="d-flex align-items-center">
-                              <ProgressBar
-                                now={employee.completionRate}
-                                variant={
-                                  employee.completionRate > 75
+                          </div>
+                        </div>
+                        <div className="text-end">
+                          <small className="text-muted">
+                            Joined:{" "}
+                            {format(parseISO(employee.created_at), "MMM d, yyyy")}
+                          </small>
+                        </div>
+                      </div>
+                    </ListGroup.Item>
+                  ))}
+                </ListGroup>
+                {analyticsData.recentOnboarding.length === 0 && (
+                  <div className="text-center py-5 text-muted">
+                    No new employees in the last 30 days
+                  </div>
+                )}
+              </Card.Body>
+            </Card>
+          </Col>
+          {/* Detailed Employee Performance Table */}
+          <Col md={12} className="mb-4">
+            <Card>
+              <Card.Header>
+                <h5 className="mb-0">Employee Performance Details</h5>
+              </Card.Header>
+              <Card.Body>
+                <div className="table-responsive">
+                  <Table striped hover>
+                    <thead>
+                      <tr>
+                        <th>Employee</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Total Tasks</th>
+                        <th>Completed</th>
+                        <th>Overdue</th>
+                        <th>Completion Rate</th>
+                        <th>Recent Activity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analyticsData.employeePerformance
+                        .sort((a, b) => b.taskCount - a.taskCount)
+                        .map((employee) => (
+                          <tr key={employee.id}>
+                            <td>
+                              <div>
+                                <strong>
+                                  {employee.first_name} {employee.last_name}
+                                </strong>
+                                <div className="text-muted small">
+                                  {employee.email}
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <Badge bg="info">{employee.role}</Badge>
+                            </td>
+                            <td>
+                              <Badge
+                                bg={
+                                  employee.status === "Active"
                                     ? "success"
-                                    : employee.completionRate > 50
-                                    ? "warning"
-                                    : "danger"
+                                    : "secondary"
                                 }
-                                style={{ width: "60px", height: "8px" }}
-                                className="me-2"
-                              />
-                              <span>
-                                {Math.round(employee.completionRate)}%
+                              >
+                                {employee.status}
+                              </Badge>
+                            </td>
+                            <td>{employee.taskCount}</td>
+                            <td>
+                              <span className="text-success">
+                                {employee.completedTasks}
                               </span>
-                            </div>
-                          </td>
-                          <td>{employee.recentActivities} actions</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </Table>
-              </div>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+                            </td>
+                            <td>
+                              {employee.overdueTasks > 0 ? (
+                                <span className="text-danger">
+                                  {employee.overdueTasks}
+                                </span>
+                              ) : (
+                                <span className="text-muted">0</span>
+                              )}
+                            </td>
+                            <td>
+                              <div className="d-flex align-items-center">
+                                <ProgressBar
+                                  now={employee.completionRate}
+                                  variant={
+                                    employee.completionRate > 75
+                                      ? "success"
+                                      : employee.completionRate > 50
+                                      ? "warning"
+                                      : "danger"
+                                  }
+                                  style={{ width: "60px", height: "8px" }}
+                                  className="me-2"
+                                />
+                                <span>
+                                  {Math.round(employee.completionRate)}%
+                                </span>
+                              </div>
+                            </td>
+                            <td>{employee.recentActivities} actions</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </Table>
+                </div>
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      </div>
     </Container>
   );
 };

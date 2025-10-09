@@ -1054,7 +1054,7 @@ const ManagerTasks = () => {
                             <option value="todo">To Do</option>
                             <option value="in_progress">In Progress</option>
                             <option value="on_hold">On Hold</option>
-                            <option value="Completed">Completed</option>
+                            <option value="completed">Completed</option>
                           </Form.Select>
                         </div>
                       </Form.Group>
@@ -1185,17 +1185,19 @@ const ManagerTasks = () => {
                                 </p>
                               </div>
                             ) : (
-                              tasksInGroup.map((task) => (
-                                <TaskCard
-                                  key={task.id}
-                                  task={task}
-                                  getAssignedUsers={getAssignedUsers}
-                                  currentUser={currentUser}
-                                  onCancelTask={cancelTask}
-                                  onReassignTask={handleTaskReassigned}
-                                  showReassignButton={isTaskUnassigned(task)}
-                                />
-                              ))
+                              tasksInGroup
+                                .filter((task) => task.status !== "cancelled") // Ensure no cancelled tasks show up
+                                .map((task) => (
+                                  <TaskCard
+                                    key={task.id}
+                                    task={task}
+                                    getAssignedUsers={getAssignedUsers}
+                                    currentUser={currentUser}
+                                    onCancelTask={cancelTask}
+                                    onReassignTask={handleTaskReassigned}
+                                    showReassignButton={isTaskUnassigned(task)}
+                                  />
+                                ))
                             )}
                           </Card.Body>
                         </Card>
@@ -1205,14 +1207,20 @@ const ManagerTasks = () => {
                 </Row>
 
                 {filteredTasks.filter((t) => t.status !== "cancelled")
-                  .length === 0 &&
-                  tasks.length > 0 && (
-                    <Card className="text-center m-3 shadow-sm border-0">
-                      <Card.Body className="py-5">
-                        <h4 className="mt-3">No tasks match your filters</h4>
-                        <p className="text-muted">
-                          Try adjusting your search criteria
-                        </p>
+                  .length === 0 && (
+                  <Card className="text-center m-3 shadow-sm border-0">
+                    <Card.Body className="py-5">
+                      <h4 className="mt-3">
+                        {tasks.length === 0
+                          ? "No active tasks"
+                          : "No tasks match your filters"}
+                      </h4>
+                      <p className="text-muted">
+                        {tasks.length === 0
+                          ? "Get started by creating your first task"
+                          : "Try adjusting your search criteria"}
+                      </p>
+                      {tasks.length > 0 && (
                         <Button
                           variant="primary"
                           onClick={clearFilters}
@@ -1220,9 +1228,10 @@ const ManagerTasks = () => {
                         >
                           Clear All Filters
                         </Button>
-                      </Card.Body>
-                    </Card>
-                  )}
+                      )}
+                    </Card.Body>
+                  </Card>
+                )}
               </Tab>
               <Tab
                 eventKey="cancelled"
