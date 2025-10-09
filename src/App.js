@@ -31,6 +31,7 @@ import AdminProjectOverview from "./pages/Admin/AdminProjectOverview";
 import ProjectPortfolio from "./pages/Executive/ProjectPortfolio";
 import ProjectReports from "./pages/Executive/ProjectReports";
 import EmployeeAnalytics from "./pages/Executive/EmployeeAnalytics";
+import LandingPage from "./components/ui/LandingPage";
 
 const queryClient = new QueryClient();
 
@@ -162,8 +163,9 @@ function App() {
           </>
         ) : (
           <Routes>
+            <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
-            <Route path="*" element={<Navigate to="/login" />} />
+            <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         )}
       </BrowserRouter>
