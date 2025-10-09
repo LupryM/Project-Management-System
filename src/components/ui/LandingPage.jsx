@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import InovatechLogo from "./InovatechLogo.png";
 
 const styles = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -666,38 +667,17 @@ export default function LandingPage() {
     <div className="landing-container">
       <header className="main-header">
         <div className="logo">
-          <div className="logo-icon">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect
-                x="4"
-                y="4"
-                width="24"
-                height="24"
-                rx="4"
-                fill="url(#gradient)"
-              />
-              <path
-                d="M12 16L15 19L20 13"
-                stroke="white"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <defs>
-                <linearGradient id="gradient" x1="4" y1="4" x2="28" y2="28">
-                  <stop offset="0%" stopColor="#0b5ed7" /> {/* Updated color */}
-                  <stop offset="100%" stopColor="#3498db" />{" "}
-                  {/* Lighter blue for gradient */}
-                </linearGradient>
-              </defs>
-            </svg>
-          </div>
+          <img
+            src={InovatechLogo}
+            alt="Inovatech"
+            className="logo-image"
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              objectFit: "cover",
+            }}
+          />
           <span>Inovatech</span>
         </div>
         <nav className="main-nav">
@@ -949,21 +929,9 @@ export default function LandingPage() {
             <p>Project Management and Reporting System</p>
           </div>
           <div className="footer-section">
-            <h4>Product</h4>
-            <a href="#">Features</a>
-            <a href="#">Pricing</a>
-            <a href="#">Security</a>
-          </div>
-          <div className="footer-section">
             <h4>Company</h4>
             <a href="#">About</a>
             <a href="#">Careers</a>
-          </div>
-          <div className="footer-section">
-            <h4>Resources</h4>
-            <a href="#">Documentation</a>
-            <a href="#">Support</a>
-            <a href="#">API</a>
           </div>
         </div>
         <div className="footer-bottom">
