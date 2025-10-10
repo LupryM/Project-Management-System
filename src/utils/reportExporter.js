@@ -121,7 +121,8 @@ export function exportProjectPortfolioReport(processedData, options = {}) {
   const total = processedData.totalProjects || 1;
   autoTable(doc, {
     head: [["Status", "Count", "%"]],
-    body: processedData.statusDistribution
+    body: (processedData.statusDistribution || [])
+      .slice() // avoid mutating
       .filter((s) => s.value > 0)
       .map((s) => [s.name, s.value, ((s.value / total) * 100).toFixed(1) + "%"]),
     startY: statusY,
@@ -135,7 +136,8 @@ export function exportProjectPortfolioReport(processedData, options = {}) {
   const teamY = addSectionTitle(doc, "Projects by Team", doc.lastAutoTable.finalY + 8);
   autoTable(doc, {
     head: [["Team", "Projects", "Completed", "Completion %"]],
-    body: processedData.teamDistribution
+    body: (processedData.teamDistribution || [])
+      .slice() // avoid mutating potentially frozen arrays
       .sort((a, b) => b.projects - a.projects)
       .slice(0, 12)
       .map((t) => [t.name, t.projects, t.completed, t.projects > 0 ? ((t.completed / t.projects) * 100).toFixed(1) + "%" : "0%"]),
@@ -148,7 +150,7 @@ export function exportProjectPortfolioReport(processedData, options = {}) {
 
   // Top projects by completion
   const topProjects = (processedData.projectTaskMetrics || [])
-    .slice()
+    .slice() // avoid mutating
     .sort((a, b) => (b.completionRate || 0) - (a.completionRate || 0))
     .slice(0, 18);
 
@@ -171,6 +173,7 @@ export function exportProjectPortfolioReport(processedData, options = {}) {
   // Overdue projects (compact)
   if (Array.isArray(projects) && projects.length > 0) {
     const overdue = projects
+      .slice() // avoid mutating
       .filter((p) => p.due_date && p.status !== "completed" && new Date(p.due_date) < new Date())
       .slice(0, 18);
     if (overdue.length > 0) {
@@ -244,7 +247,10 @@ export function exportWeeklyReport(reportData, options = {}) {
   });
 
   // Top project progress
-  const topProj = (reportData.projectProgress || []).slice().sort((a, b) => b.progress - a.progress).slice(0, 15);
+  const topProj = (reportData.projectProgress || [])
+    .slice() // avoid mutating
+    .sort((a, b) => b.progress - a.progress)
+    .slice(0, 15);
   const projY = addSectionTitle(doc, "Top Project Progress", doc.lastAutoTable.finalY + 8);
   autoTable(doc, {
     head: [["Project", "Completed/Total", "Progress %"]],
@@ -308,6 +314,7 @@ export function exportTaskAnalyticsReport(taskStats, reportData, options = {}) {
 
   // Overdue tasks (top 20)
   const overdueTasks = (reportData || [])
+    .slice() // avoid mutating
     .filter(
       (t) => t.due_date && new Date(t.due_date) < new Date() && t.status !== "Completed" && t.status !== "cancelled"
     )
