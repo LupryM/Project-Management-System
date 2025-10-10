@@ -1,9 +1,6 @@
-// components/ui/LoginForm.js
-// IMPORTANT: Add this to your index.html <head> section:
-// <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
 import React, { useState } from "react";
-import { Card, Form, Button, Alert, Spinner, InputGroup } from "react-bootstrap";
+import { Card, Form, Button, Alert, Spinner } from "react-bootstrap";
 import { supabase } from "../../lib/supabaseClient";
 
 const LoginForm = () => {

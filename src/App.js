@@ -13,7 +13,6 @@ import ManagerLayout from "./components/Layouts/ManagerLayout";
 
 // Pages
 import AdminDashboard from "./pages/Admin/admin_Dashboard_Page";
-import ViewProjects from "./pages/Admin/Project_List_Page";
 import EmployeeTasks from "./pages/Employees/Employee_Tasks";
 import Settings from "./pages/General/Settings";
 import UserManagement from "./pages/Admin/UserManagement";
@@ -32,6 +31,7 @@ import ProjectPortfolio from "./pages/Executive/ProjectPortfolio";
 import ProjectReports from "./pages/Executive/ProjectReports";
 import EmployeeAnalytics from "./pages/Executive/EmployeeAnalytics";
 import LandingPage from "./components/ui/LandingPage";
+import EmployeeProfile from "./pages/Employees/Emp_Profile";
 
 const queryClient = new QueryClient();
 
@@ -111,6 +111,7 @@ function App() {
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/" />} />
                   <Route path="/LogChanges" element={<LogChanges />} />
+                  <Route path="/my-profile" element={<EmployeeProfile />} />
                 </Routes>
               </AdminLayout>
             )}
@@ -139,6 +140,7 @@ function App() {
                   <Route path="/dashboard" element={<ManagerDashboard />} />
                   <Route path="/projects" element={<ManagerProjectList />} />
                   <Route path="/Mtasks" element={<ManagerTasks />} />
+                  <Route path="/my-profile" element={<EmployeeProfile />} />
                   <Route
                     path="/project/:projectId"
                     element={<ProjectDetail />}
@@ -157,6 +159,7 @@ function App() {
                   <Route path="/my-tasks" element={<EmployeeTasks />} />
                   <Route path="*" element={<Navigate to="/" />} />
                   <Route path="/my-projects" element={<EmployeeProjects />} />
+                  <Route path="/my-profile" element={<EmployeeProfile />} />
                 </Routes>
               </EmployeeLayout>
             )}

@@ -27,14 +27,14 @@ const ManagerSidebar = () => {
           className={location.pathname === "/Mtasks" ? "active" : ""}
         >
           <i className="bi bi-folder me-2"></i>
-            Tasks
+          Tasks
         </Link>
         <Link
-          to="/settings"
-          className={location.pathname === "/settings" ? "active" : ""}
+          to="/my-profile"
+          className={location.pathname === "/my-profile" ? "active" : ""}
         >
-          <i className="bi bi-gear me-2"></i>
-          Settings
+          <i className="bi bi-person me-2"></i> {/* Added icon */}
+          Profile
         </Link>
         <button onClick={() => supabase.auth.signOut()} className="logout-btn">
           <i className="bi bi-box-arrow-right me-2"></i>

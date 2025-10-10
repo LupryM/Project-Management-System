@@ -218,7 +218,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
         userId: user.id,
       });
 
-      // ✅ Check any selected assignee has < 3 active tasks
+      // ✅ Check any selected assignee has < 5 active tasks
       for (const userId of selectedAssignees) {
         const { count: activeTasksCount, error: countError } = await supabase
           .from("task_assignments")
@@ -236,7 +236,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
 
         if (countError) throw countError;
 
-        if (activeTasksCount >= 3) {
+        if (activeTasksCount >= 5) {
           throw new Error(
             `User "${
               teamMembers.find((m) => m.user_id === userId)?.first_name ||

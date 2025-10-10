@@ -59,120 +59,149 @@ const ManagerDashboard = () => {
     try {
       const { data: currentUser } = await supabase.auth.getUser();
       if (!currentUser?.user) return;
-
       const userId = currentUser.user.id;
 
-      // Get manager profile
+      // profile
       const { data: profile } = await supabase
         .from("profiles")
         .select("first_name, last_name")
         .eq("id", userId)
         .single();
-
       setManagerName(
         profile ? `${profile.first_name} ${profile.last_name}` : "Manager"
       );
 
-      // Get ALL projects managed by this user
-      const { data: projects } = await supabase
+      // projects
+      const { data: projects = [], error: projectsError } = await supabase
         .from("projects")
         .select("id, name, description, status")
         .eq("manager_id", userId);
+      if (projectsError) throw projectsError;
 
-      const totalProjects = projects?.length || 0;
+      const projectIds = projects.map((p) => p.id || null).filter(Boolean);
+      const totalProjects = projects.length;
 
-      // Count projects by status
-      const completedProjects =
-        projects?.filter((p) => p.status === "completed").length || 0;
-      const inProgressProjects =
-        projects?.filter((p) => p.status === "in_progress").length || 0;
-      const onHoldProjects =
-        projects?.filter((p) => p.status === "on_hold").length || 0;
-      const cancelledProjects =
-        projects?.filter((p) => p.status === "Cancelled").length || 0;
+      // team members (guard empty projectIds)
+      let uniqueTeamMembers = [];
+      if (projectIds.length > 0) {
+        const { data: teamMembersData = [] } = await supabase
+          .from("team_members")
+          .select("user_id")
+          .in("team_id", projectIds);
+        uniqueTeamMembers = [
+          ...new Set(teamMembersData.map((tm) => tm.user_id)),
+        ];
+      }
 
-      // Team members (unique across all projects)
-      const { data: teamMembersData } = await supabase
-        .from("team_members")
-        .select("user_id")
-        .in("team_id", projects?.map((p) => p.id) || []);
-
-      const uniqueTeamMembers = [
-        ...new Set(teamMembersData?.map((tm) => tm.user_id)),
-      ];
-
-      // Count actual unassigned tasks for this manager's projects
-      let unassignedTasksCount = 0;
-      if (projects && projects.length > 0) {
-        const projectIds = projects.map((p) => p.id);
-
-        const { data: managerTasks, error: tasksError } = await supabase
+      // Fetch ALL tasks for these projects in one go (include assignments)
+      let allTasks = [];
+      if (projectIds.length > 0) {
+        const { data: tasksData = [], error: tasksError } = await supabase
           .from("tasks")
           .select(
             `
-            id,
-            assignments:task_assignments(id)
-          `
+          id,
+          status,
+          priority,
+          project_id,
+          title,
+          due_date,
+          created_at,
+          assignments:task_assignments(id)
+        `
           )
-          .in("project_id", projectIds)
-          .in("status", ["todo", "in_progress"]);
-
-        if (!tasksError) {
-          unassignedTasksCount =
-            managerTasks?.filter(
-              (task) => !task.assignments || task.assignments.length === 0
-            ).length || 0;
-        }
+          .in("project_id", projectIds);
+        if (tasksError) throw tasksError;
+        allTasks = tasksData;
       }
 
-      // Recent tasks
-      const { data: tasks } = await supabase
-        .from("tasks")
-        .select(
-          "id, title, status, priority, due_date, project_id, projects(name)"
-        )
-        .in("project_id", projects?.map((p) => p.id) || [])
-        .order("created_at", { ascending: false })
-        .limit(5);
+      // helper: normalize statuses for comparisons (doesn't change DB)
+      const norm = (s) =>
+        (s || "").toString().toLowerCase().replace(/\s+/g, "_");
 
+      // compute task-level counts (exclude cancelled where appropriate)
+      const taskCounts = {
+        total: 0,
+        inProgress: 0,
+        completed: 0,
+        onHold: 0,
+        cancelled: 0,
+        todo: 0,
+      };
+      let unassignedTasksCount = 0;
+      const priorityCounts = { 1: 0, 2: 0, 3: 0, 4: 0, unknown: 0 };
+
+      allTasks.forEach((t) => {
+        const s = norm(t.status);
+        taskCounts.total += 1;
+        if (s === "in_progress") taskCounts.inProgress += 1;
+        if (s === "completed") taskCounts.completed += 1; // works for 'Completed' or 'completed'
+        if (s === "on_hold") taskCounts.onHold += 1;
+        if (s === "cancelled") taskCounts.cancelled += 1;
+        if (s === "todo") taskCounts.todo += 1;
+
+        // unassigned: same logic as before, but defensive
+        const hasAssignments =
+          Array.isArray(t.assignments) && t.assignments.length > 0;
+        if (!hasAssignments && (s === "todo" || s === "in_progress")) {
+          unassignedTasksCount += 1;
+        }
+
+        // priority counts (exclude cancelled tasks if you want)
+        const isActive = s !== "cancelled"; // exclude cancelled from priority totals
+        const pKey = t.priority ?? "unknown";
+        if (isActive) {
+          priorityCounts[pKey] = (priorityCounts[pKey] || 0) + 1;
+        }
+      });
+
+      // per-project details (exclude cancelled tasks from denominators)
+      const projectsWithDetails = (projects || []).map((project) => {
+        const tasksForProject = allTasks.filter(
+          (t) => t.project_id === project.id
+        );
+        const activeTasks = tasksForProject.filter(
+          (t) => norm(t.status) !== "cancelled"
+        );
+        const completedTasks = activeTasks.filter(
+          (t) => norm(t.status) === "completed"
+        ).length;
+        const totalActive = activeTasks.length;
+        const progress =
+          totalActive > 0
+            ? Math.round((completedTasks / totalActive) * 100)
+            : 0;
+        return {
+          ...project,
+          completedTasks,
+          totalTasks: totalActive, // now EXCLUDES cancelled tasks
+          progress,
+        };
+      });
+
+      // recent tasks (sort by created_at desc)
+      const recentTasksSorted = [...allTasks]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 5);
+
+      // set states
       setStats({
         totalProjects,
         teamMembers: uniqueTeamMembers.length,
-        tasksInProgress: inProgressProjects,
-        tasksCompleted: completedProjects,
-        tasksOnHold: onHoldProjects,
-        tasksCancelled: cancelledProjects,
+        tasksInProgress: taskCounts.inProgress,
+        tasksCompleted: taskCounts.completed,
+        tasksOnHold: taskCounts.onHold,
+        tasksCancelled: taskCounts.cancelled,
         unassignedTasks: unassignedTasksCount,
       });
 
-      // Keep the project details for the main section
-      const projectsWithDetails = await Promise.all(
-        (projects || []).map(async (project) => {
-          const { data: projectTasks } = await supabase
-            .from("tasks")
-            .select("status")
-            .eq("project_id", project.id);
-
-          const completedTasks =
-            projectTasks?.filter((t) => t.status === "Completed").length || 0;
-          const totalTasks = projectTasks?.length || 0;
-
-          return {
-            ...project,
-            completedTasks,
-            totalTasks,
-            progress:
-              totalTasks > 0
-                ? Math.round((completedTasks / totalTasks) * 100)
-                : 0,
-          };
-        })
-      );
-
       setProjects(projectsWithDetails);
-      setRecentTasks(tasks || []);
+      setRecentTasks(recentTasksSorted);
+
+      // OPTIONAL: if you want to show priority counts in UI, create state and set it:
+      // setPriorityCounts(priorityCounts);
     } catch (error) {
-      console.error("Error fetching dashboard stats:", error);
+      console.error("Error fetching dashboard stats (refactor):", error);
     } finally {
       setLoading(false);
     }

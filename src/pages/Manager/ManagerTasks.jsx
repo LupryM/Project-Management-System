@@ -271,35 +271,70 @@ const TaskCard = ({
     try {
       setReassigning(true);
 
-      // Get team members for this task's project
+      console.log("Fetching team users for task project:", task.project_id);
+
+      // Step 1: Get the project to find its team_id
+      const { data: project, error: projectError } = await supabase
+        .from("projects")
+        .select("id, name, team_id")
+        .eq("id", task.project_id)
+        .single();
+
+      if (projectError) {
+        console.error("Error fetching project:", projectError);
+        setAvailableUsers([]);
+        return;
+      }
+
+      if (!project || !project.team_id) {
+        console.log("No team_id found for project");
+        setAvailableUsers([]);
+        return;
+      }
+
+      console.log("Found project team_id:", project.team_id);
+
+      // Step 2: Get active team members for that team
       const { data: teamMembers, error } = await supabase
         .from("team_members")
         .select(
           `
-          user_id,
-          profiles:user_id (
-            id,
-            first_name,
-            last_name,
-            email,
-            status
-          )
-        `
+        user_id,
+        role_in_team,
+        profiles:user_id (
+          id,
+          first_name,
+          last_name,
+          email,
+          status
         )
-        .eq("team_id", task.project_id) // Using project_id as team_id (adjust if your schema is different)
+      `
+        )
+        .eq("team_id", project.team_id)
         .eq("profiles.status", "Active");
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching team members:", error);
+        setAvailableUsers([]);
+        return;
+      }
+
+      console.log("Found team members:", teamMembers);
 
       const activeTeamUsers = (teamMembers || [])
         .filter(
           (member) => member.profiles && member.profiles.status === "Active"
         )
-        .map((member) => member.profiles);
+        .map((member) => ({
+          ...member.profiles,
+          role_in_team: member.role_in_team, // Include role if needed
+        }));
 
+      console.log("Active team users:", activeTeamUsers);
       setAvailableUsers(activeTeamUsers || []);
     } catch (error) {
-      console.error("Error fetching team users:", error);
+      console.error("Error in fetchAvailableTeamUsers:", error);
+      setAvailableUsers([]);
     } finally {
       setReassigning(false);
     }
@@ -827,8 +862,13 @@ const ManagerTasks = () => {
     inProgress: tasks.filter((t) => t.status === "in_progress").length,
     todo: tasks.filter((t) => t.status === "todo").length,
     onHold: tasks.filter((t) => t.status === "on_hold").length,
-    critical: tasks.filter((t) => t.priority === 1).length,
-    high: tasks.filter((t) => t.priority === 2).length,
+    critical: tasks.filter(
+      (t) => t.status !== "cancelled" && Number(t.priority) === 1
+    ).length,
+    high: tasks.filter(
+      (t) => t.status !== "cancelled" && Number(t.priority) === 2
+    ).length,
+
     unassigned: tasks.filter(
       (task) => isTaskUnassigned(task) && task.status !== "cancelled"
     ).length,
@@ -1166,7 +1206,11 @@ const ManagerTasks = () => {
                             <div className="d-flex justify-content-between align-items-center">
                               <h6 className="mb-0 fw-bold">{groupName}</h6>
                               <Badge bg="light" text="dark" pill>
-                                {tasksInGroup.length}
+                                {
+                                  tasksInGroup.filter(
+                                    (t) => t.status !== "cancelled"
+                                  ).length
+                                }
                               </Badge>
                             </div>
                           </Card.Header>

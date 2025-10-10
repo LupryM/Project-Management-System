@@ -390,14 +390,25 @@ const UserManagement = () => {
         .eq("id", user.id);
       if (statusError) throw statusError;
 
-      // If deactivating, handle task assignments
+      // If deactivating, handle task assignments AND remove from teams
       if (newStatus === "Inactive") {
-        // Get active tasks assigned to this user
+        // Get active tasks assigned to this user with proper join
         const { data: activeTasks, error: tasksError } = await supabase
           .from("task_assignments")
-          .select(`*, tasks(*)`)
+          .select(
+            `
+          *,
+          tasks!inner(
+            id,
+            title,
+            status,
+            created_by
+          )
+        `
+          )
           .eq("user_id", user.id)
-          .in("tasks.status", ["todo", "in_progress"]); // only active tasks
+          .in("tasks.status", ["todo", "in_progress"]);
+
         if (tasksError) throw tasksError;
 
         // Unassign tasks
@@ -407,7 +418,7 @@ const UserManagement = () => {
             .delete()
             .eq("id", assignment.id);
 
-          // Notify task creator / manager
+          // Now assignment.tasks should always exist due to !inner join
           await supabase.from("notifications").insert({
             user_id: assignment.tasks.created_by,
             actor_id: currentUser.id,
@@ -416,12 +427,25 @@ const UserManagement = () => {
             message: `User ${user.email} was deactivated. Task "${assignment.tasks.title}" needs reassignment.`,
           });
         }
+
+        // NEW: Remove user from all teams
+        const { error: teamRemoveError } = await supabase
+          .from("team_members")
+          .delete()
+          .eq("user_id", user.id);
+
+        if (teamRemoveError) {
+          console.error("Error removing user from teams:", teamRemoveError);
+          // Don't throw here, just log the error but continue
+        }
       }
 
       // Log activity
       await logActivity({
         type: "user_status_changed",
-        details: `${user.email} status changed to ${newStatus}`,
+        details: `${user.email} status changed to ${newStatus}${
+          newStatus === "Inactive" ? " and removed from all teams" : ""
+        }`,
         projectId: null,
         userId: currentUser.id,
       });
@@ -434,7 +458,9 @@ const UserManagement = () => {
       setSuccess(
         `User ${
           newStatus === "Active" ? "activated" : "deactivated"
-        } successfully`
+        } successfully${
+          newStatus === "Inactive" ? " and removed from all teams" : ""
+        }`
       );
     } catch (error) {
       console.error("Error updating user status:", error.message);
@@ -674,8 +700,6 @@ const UserManagement = () => {
         <Tab eventKey="teams" title="Teams">
           <TeamManagement currentUser={currentUser} />
         </Tab>
-
-        
       </Tabs>
     </Container>
   );

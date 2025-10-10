@@ -10,14 +10,16 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newMember, setNewMember] = useState({
     user_id: "",
-    role_in_team: "Read-Only", 
+    role_in_team: "Read-Only",
   });
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     // Get current user for notifications
     const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setCurrentUser(user);
     };
     getCurrentUser();
@@ -34,7 +36,12 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
   }, [teamMembers]);
 
   // NEW: Function to send notifications to team members
-  const notifyTeamMembers = async (action, targetUserName, targetUserEmail, role = null) => {
+  const notifyTeamMembers = async (
+    action,
+    targetUserName,
+    targetUserEmail,
+    role = null
+  ) => {
     try {
       if (!currentUser || !teamId) return;
 
@@ -52,7 +59,9 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
 
       switch (action) {
         case "member_added":
-          message = `${targetUserName} (${targetUserEmail}) has been added to the team${role ? ` as ${role}` : ''}`;
+          message = `${targetUserName} (${targetUserEmail}) has been added to the team${
+            role ? ` as ${role}` : ""
+          }`;
           type = "team_member_added";
           break;
         case "member_removed":
@@ -68,7 +77,7 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
       }
 
       // Create notifications for all team members
-      const notifications = teamMembers.map(member => ({
+      const notifications = teamMembers.map((member) => ({
         type: type,
         user_id: member.user_id,
         actor_id: currentUser.id,
@@ -86,14 +95,18 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
       if (notifyError) {
         console.error("Failed to create team notifications:", notifyError);
       }
-
     } catch (err) {
       console.error("Error in notifyTeamMembers:", err);
     }
   };
 
   // NEW: Function to send notification to the specific user being added/removed
-  const notifyTargetUser = async (action, teamName, targetUserId, role = null) => {
+  const notifyTargetUser = async (
+    action,
+    teamName,
+    targetUserId,
+    role = null
+  ) => {
     try {
       if (!currentUser || !targetUserId) return;
 
@@ -102,7 +115,9 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
 
       switch (action) {
         case "member_added":
-          message = `You have been added to team "${teamName}"${role ? ` as ${role}` : ''}`;
+          message = `You have been added to team "${teamName}"${
+            role ? ` as ${role}` : ""
+          }`;
           type = "team_member_added";
           break;
         case "member_removed":
@@ -113,22 +128,19 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
           return;
       }
 
-      const { error } = await supabase
-        .from("notifications")
-        .insert({
-          type: type,
-          user_id: targetUserId,
-          actor_id: currentUser.id,
-          team_id: teamId,
-          message: message,
-          is_read: false,
-          created_at: new Date().toISOString(),
-        });
+      const { error } = await supabase.from("notifications").insert({
+        type: type,
+        user_id: targetUserId,
+        actor_id: currentUser.id,
+        team_id: teamId,
+        message: message,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
 
       if (error) {
         console.error("Failed to create user notification:", error);
       }
-
     } catch (err) {
       console.error("Error in notifyTargetUser:", err);
     }
@@ -153,11 +165,12 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
 
   const fetchTeamMembers = async () => {
     try {
-      // First try to use the view
+      // First try to use the view with active status filter
       let { data, error } = await supabase
         .from("team_members_with_details")
         .select("*")
         .eq("team_id", teamId)
+        .eq("status", "Active") // ADDED: Active status filter
         .order("added_at", { ascending: false });
 
       // If the view doesn't exist or fails, fall back to the direct table query
@@ -168,10 +181,11 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
           .select(
             `
             *,
-            user:profiles (id, first_name, last_name, email)
+            user:profiles (id, first_name, last_name, email, status)
           `
           )
           .eq("team_id", teamId)
+          .eq("user.status", "Active") // ADDED: Active status filter
           .order("added_at", { ascending: false }));
       }
 
@@ -184,9 +198,15 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
         first_name: member.first_name || member.user?.first_name,
         last_name: member.last_name || member.user?.last_name,
         email: member.email || member.user?.email,
+        status: member.status || member.user?.status,
       }));
 
-      setTeamMembers(transformedData);
+      // ADDED: Additional filter to ensure only active members are shown
+      const activeMembers = transformedData.filter(member => 
+        member.status === "Active"
+      );
+
+      setTeamMembers(activeMembers);
     } catch (error) {
       setError("Error loading team members: " + error.message);
     } finally {
@@ -198,7 +218,8 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
     try {
       let query = supabase
         .from("profiles")
-        .select("id, first_name, last_name, email")
+        .select("id, first_name, last_name, email, status")
+        .eq("status", "Active") // ADDED: Only active users
         .order("first_name", { ascending: true });
 
       if (teamMembers.length > 0) {
@@ -209,7 +230,10 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
       const { data, error } = await query;
 
       if (error) throw error;
-      setNonMembers(data || []);
+      
+      // ADDED: Ensure only active non-members are shown
+      const activeNonMembers = (data || []).filter(user => user.status === "Active");
+      setNonMembers(activeNonMembers);
     } catch (error) {
       console.error("Error loading non-members:", error.message);
       setNonMembers([]);
@@ -222,7 +246,9 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
 
     try {
       // Get the user being added for notifications
-      const userToAdd = nonMembers.find(user => user.id === newMember.user_id);
+      const userToAdd = nonMembers.find(
+        (user) => user.id === newMember.user_id
+      );
       if (!userToAdd) throw new Error("Selected user not found");
 
       const { error } = await supabase.from("team_members").insert({
@@ -236,7 +262,7 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
 
       // NEW: Send notifications
       const teamName = await getTeamName();
-      
+
       // Notify all team members about the new addition
       await notifyTeamMembers(
         "member_added",
@@ -246,7 +272,12 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
       );
 
       // Notify the user who was added
-      await notifyTargetUser("member_added", teamName, newMember.user_id, newMember.role_in_team);
+      await notifyTargetUser(
+        "member_added",
+        teamName,
+        newMember.user_id,
+        newMember.role_in_team
+      );
 
       // Reset form and refresh data
       setNewMember({ user_id: "", role_in_team: "Read-Only" });
@@ -277,7 +308,7 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
 
       // NEW: Send notifications
       const teamName = await getTeamName();
-      
+
       // Notify all team members about the removal
       await notifyTeamMembers(
         "member_removed",
@@ -375,6 +406,9 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
                       </option>
                     ))}
                   </Form.Select>
+                  <Form.Text className="text-muted">
+                    Only active users are shown
+                  </Form.Text>
                 </Form.Group>
               </Col>
               <Col md={4}>
@@ -421,17 +455,17 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
                           {isTeamManager ? (
                             <Form.Select
                               size="sm"
-                              style={{ width: 'auto', display: 'inline-block' }}
+                              style={{ width: "auto", display: "inline-block" }}
                               value={member.role_in_team}
-                              onChange={(e) => handleRoleChange(member, e.target.value)}
+                              onChange={(e) =>
+                                handleRoleChange(member, e.target.value)
+                              }
                             >
                               <option value="Read-Only">Read-Only</option>
                               <option value="Editor">Editor</option>
                             </Form.Select>
                           ) : (
-                            <Badge bg="secondary">
-                              {member.role_in_team}
-                            </Badge>
+                            <Badge bg="secondary">{member.role_in_team}</Badge>
                           )}
                         </div>
                       )}
@@ -451,7 +485,7 @@ const TeamManagement = ({ teamId, isTeamManager, onTeamUpdated }) => {
             ))}
           </div>
         ) : (
-          <p className="text-muted">No team members yet.</p>
+          <p className="text-muted">No active team members found.</p>
         )}
       </Card.Body>
     </Card>
