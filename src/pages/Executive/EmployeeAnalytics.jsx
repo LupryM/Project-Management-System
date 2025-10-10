@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { exportEmployeeAnalyticsReport } from "../../utils/reportExporter";
 import {
   Container,
   Row,
@@ -148,98 +147,18 @@ const EmployeeAnalyticsDashboard = () => {
 
   const exportToPDF = async () => {
     setExporting(true);
-
     try {
-      // Get the main content element to capture
-      const element = document.getElementById("employee-report-content");
-
-      if (!element) {
-        throw new Error("Report content not found");
-      }
-
-      // Capture the entire content as canvas
-      const canvas = await html2canvas(element, {
-        scale: 2, // Higher quality
-        useCORS: true,
-        allowTaint: false,
-        scrollY: -window.scrollY,
-        width: element.scrollWidth,
-        height: element.scrollHeight,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
-      });
-
-      // Create PDF
-      const pdf = new jsPDF("p", "mm", "a4");
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      // Add first page
-      pdf.addImage(
-        canvas.toDataURL("image/png"),
-        "PNG",
-        0,
-        position,
-        imgWidth,
-        imgHeight
-      );
-      heightLeft -= pageHeight;
-
-      // Add additional pages if content is longer than one page
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(
-          canvas.toDataURL("image/png"),
-          "PNG",
-          0,
-          position,
-          imgWidth,
-          imgHeight
-        );
-        heightLeft -= pageHeight;
-      }
-
-      // Add header with timestamp and page numbers
-      const totalPages = pdf.internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        pdf.setPage(i);
-        // Add page number footer
-        pdf.setFontSize(10);
-        pdf.setTextColor(100);
-        pdf.text(
-          `Page ${i} of ${totalPages}`,
-          pdf.internal.pageSize.getWidth() / 2,
-          pdf.internal.pageSize.getHeight() - 10,
-          { align: "center" }
-        );
-        // Add timestamp on first page - MOVED TO TOP RIGHT
-        if (i === 1) {
-          pdf.setFontSize(8);
-          pdf.setTextColor(150);
-          // Position in top right corner (page width - margin, small top margin)
-          pdf.text(
-            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-            pdf.internal.pageSize.getWidth() - 10, // Right margin
-            10, // Top margin
-            { align: "right" }
-          );
-        }
-      }
-
-      // Save the PDF
-      const fileName = `Employee-Analytics-Report-${format(
-        new Date(),
-        "yyyy-MM-dd"
-      )}.pdf`;
-      pdf.save(fileName);
+      const labelMap = {
+        week: "Last Week",
+        month: "This Month",
+        quarter: "This Quarter",
+        all: "All Time",
+      };
+      const timeFrameLabel = labelMap[timeFrame] || "This Month";
+      exportEmployeeAnalyticsReport(analyticsData, { timeFrameLabel });
     } catch (error) {
-      console.error("PDF Export Error:", error);
-      setError("Failed to generate PDF: " + error.message);
+      console.error("Export Error:", error);
+      setError("Failed to generate report: " + error.message);
     } finally {
       setExporting(false);
     }

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import { exportProjectPortfolioReport } from "../../utils/reportExporter";
 import {
   Container,
   Row,
@@ -111,89 +110,31 @@ const ProjectPortfolioDashboard = () => {
     fetchData();
   }, []);
 
-  // PDF Export remains the same
+  // New: programmatic, compact PDF export
   const exportToPDF = async () => {
     setExporting(true);
     try {
-        const element = document.getElementById("project-report-content");
-        if (!element) throw new Error("Report content not found");
+      const timeFrameLabelMap = {
+        all: "All Time",
+        month: "This Month",
+        quarter: "This Quarter",
+      };
+      const timeFrameLabel = timeFrameLabelMap[timeFrame] || "All Time";
+      const teamLabel =
+        teamFilter === "all"
+          ? "All Teams"
+          : (teams.find((t) => String(t.id) === String(teamFilter))?.name || "Team");
 
-        const canvas = await html2canvas(element, {
-            scale: 2, 
-            useCORS: true,
-            allowTaint: false,
-            scrollY: -window.scrollY,
-            width: element.scrollWidth,
-            height: element.scrollHeight,
-            windowWidth: element.scrollWidth,
-            windowHeight: element.scrollHeight,
-        });
-
-        const pdf = new jsPDF("p", "mm", "a4");
-        const imgWidth = 210; 
-        const pageHeight = 297; 
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(
-            canvas.toDataURL("image/png"),
-            "PNG",
-            0,
-            position,
-            imgWidth,
-            imgHeight
-        );
-        heightLeft -= pageHeight;
-
-        while (heightLeft >= 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(
-                canvas.toDataURL("image/png"),
-                "PNG",
-                0,
-                position,
-                imgWidth,
-                imgHeight
-            );
-            heightLeft -= pageHeight;
-        }
-
-        const totalPages = pdf.internal.getNumberOfPages();
-        for (let i = 1; i <= totalPages; i++) {
-            pdf.setPage(i);
-            pdf.setFontSize(10);
-            pdf.setTextColor(100);
-            pdf.text(
-                `Page ${i} of ${totalPages}`,
-                pdf.internal.pageSize.getWidth() / 2,
-                pdf.internal.pageSize.getHeight() - 10,
-                { align: "center" }
-            );
-            if (i === 1) {
-                pdf.setFontSize(8);
-                pdf.setTextColor(150);
-                pdf.text(
-                    `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-                    pdf.internal.pageSize.getWidth() - 10,
-                    10,
-                    { align: "right" }
-                );
-            }
-        }
-
-        const fileName = `Project-Portfolio-Report-${format(
-            new Date(),
-            "yyyy-MM-dd"
-        )}.pdf`;
-        pdf.save(fileName);
+      exportProjectPortfolioReport(processedData, {
+        timeFrameLabel,
+        teamLabel,
+        projects: processedData.filteredProjects,
+      });
     } catch (error) {
-        console.error("PDF Export Error:", error);
-        setError("Failed to generate PDF: " + error.message);
+      console.error("Export Error:", error);
+      setError("Failed to generate report: " + error.message);
     } finally {
-        setExporting(false);
+      setExporting(false);
     }
   };
 
