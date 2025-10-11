@@ -99,92 +99,416 @@ const WeeklyReports = () => {
     fetchInitialData();
   }, []);
 
+  // NEW: Professional PDF Export Function
   const exportToPDF = async () => {
     setExporting(true);
-
     try {
-      // Get the main content element to capture
-      const element = document.getElementById("weekly-report-content");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - 2 * margin;
+      let yPos = margin;
 
-      if (!element) {
-        throw new Error("Report content not found");
-      }
+      // Helper function to add new page if needed
+      const checkAddPage = (requiredSpace) => {
+        if (yPos + requiredSpace > pageHeight - margin) {
+          pdf.addPage();
+          yPos = margin;
+          return true;
+        }
+        return false;
+      };
 
-      // Capture the entire content as canvas
-      const canvas = await html2canvas(element, {
-        scale: 2, // Higher quality
-        useCORS: true,
-        allowTaint: false,
-        scrollY: -window.scrollY,
-        width: element.scrollWidth,
-        height: element.scrollHeight,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
+      // Header
+      pdf.setFontSize(20);
+      pdf.setFont(undefined, "bold");
+      pdf.text("Weekly Report", margin, yPos);
+      yPos += 8;
+
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, "normal");
+      pdf.setTextColor(100);
+      pdf.text(
+        `Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}`,
+        margin,
+        yPos
+      );
+      yPos += 10;
+
+      // Executive Summary Box
+      pdf.setDrawColor(200);
+      pdf.setFillColor(245, 247, 250);
+      pdf.roundedRect(margin, yPos, contentWidth, 35, 2, 2, "FD");
+
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Executive Summary", margin + 5, yPos + 7);
+
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, "normal");
+
+      const summaryData = [
+        {
+          label: "Total Tasks",
+          value: reportData.tasks.length,
+          color: [66, 133, 244],
+        },
+        {
+          label: "Completed",
+          value: reportData.statusDistribution.find(s => s.name === "Completed")?.value || 0,
+          color: [52, 168, 83],
+        },
+        {
+          label: "In Progress",
+          value: reportData.statusDistribution.find(s => s.name === "In Progress")?.value || 0,
+          color: [0, 136, 254],
+        },
+        {
+          label: "To Do",
+          value: reportData.statusDistribution.find(s => s.name === "To Do")?.value || 0,
+          color: [251, 188, 5],
+        },
+        {
+          label: "On Hold",
+          value: reportData.statusDistribution.find(s => s.name === "On Hold")?.value || 0,
+          color: [255, 187, 40],
+        },
+        {
+          label: "Cancelled",
+          value: reportData.statusDistribution.find(s => s.name === "Cancelled")?.value || 0,
+          color: [234, 67, 53],
+        },
+      ];
+
+      let xOffset = margin + 5;
+      let row = 0;
+      summaryData.forEach((item, idx) => {
+        if (idx % 3 === 0 && idx > 0) {
+          row++;
+          xOffset = margin + 5;
+          yPos += 20; // Move to next row if needed, but since height is 35, adjust if more
+        }
+        pdf.setTextColor(...item.color);
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(16);
+        pdf.text(String(item.value), xOffset, yPos + 18 + row * 10); // Adjust for rows if needed
+
+        pdf.setTextColor(100);
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(9);
+        pdf.text(item.label, xOffset, yPos + 25 + row * 10);
+
+        xOffset += contentWidth / 3;
       });
 
-      // Create PDF
-      const pdf = new jsPDF("p", "mm", "a4");
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      yPos += 42;
 
-      let heightLeft = imgHeight;
-      let position = 0;
+      // Status Distribution
+      checkAddPage(50);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Task Status Breakdown", margin, yPos);
+      yPos += 7;
 
-      // Add first page
-      pdf.addImage(
-        canvas.toDataURL("image/png"),
-        "PNG",
-        0,
-        position,
-        imgWidth,
-        imgHeight
-      );
-      heightLeft -= pageHeight;
+      const statusData = reportData.statusDistribution;
+      const barHeight = 8;
+      const totalTasks = statusData.reduce((sum, s) => sum + s.value, 0);
 
-      // Add additional pages if content is longer than one page
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(
-          canvas.toDataURL("image/png"),
-          "PNG",
-          0,
-          position,
-          imgWidth,
-          imgHeight
+      const statusColors = {
+        "To Do": [136, 132, 216], // purple
+        "In Progress": [0, 136, 254], // blue
+        "On Hold": [255, 187, 40], // yellow
+        "Cancelled": [255, 128, 66], // orange
+        "Completed": [0, 196, 159], // green
+      };
+
+      statusData.forEach((status) => {
+        if (status.value === 0) return;
+
+        const percentage = totalTasks > 0 ? (status.value / totalTasks) * 100 : 0;
+        const barWidth = (contentWidth - 60) * (percentage / 100);
+
+        // Color for bar
+        const color = statusColors[status.name] || [150, 150, 150];
+
+        pdf.setFillColor(...color);
+        pdf.rect(margin + 55, yPos - 5, barWidth, barHeight, "F");
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(0);
+        pdf.text(status.name, margin, yPos);
+
+        pdf.setTextColor(100);
+        pdf.text(
+          `${status.value} (${percentage.toFixed(0)}%)`,
+          margin + 60 + barWidth + 2,
+          yPos
         );
-        heightLeft -= pageHeight;
+
+        yPos += barHeight + 3;
+      });
+
+      yPos += 5;
+
+      // Priority Distribution
+      checkAddPage(50);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Task Priority Breakdown", margin, yPos);
+      yPos += 7;
+
+      const priorityData = reportData.priorityDistribution;
+      const priorityColors = {
+        "Critical": [234, 67, 53], // red
+        "High": [255, 128, 66], // orange
+        "Medium": [0, 136, 254], // blue
+        "Low": [150, 150, 150], // grey
+      };
+
+      priorityData.forEach((priority) => {
+        if (priority.value === 0) return;
+
+        const percentage = totalTasks > 0 ? (priority.value / totalTasks) * 100 : 0;
+        const barWidth = (contentWidth - 60) * (percentage / 100);
+
+        // Color for bar
+        const color = priorityColors[priority.name] || [150, 150, 150];
+
+        pdf.setFillColor(...color);
+        pdf.rect(margin + 55, yPos - 5, barWidth, barHeight, "F");
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(0);
+        pdf.text(priority.name, margin, yPos);
+
+        pdf.setTextColor(100);
+        pdf.text(
+          `${priority.value} (${percentage.toFixed(0)}%)`,
+          margin + 60 + barWidth + 2,
+          yPos
+        );
+
+        yPos += barHeight + 3;
+      });
+
+      yPos += 5;
+
+      // Weekly Trends
+      checkAddPage(50);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Weekly Task Trends", margin, yPos);
+      yPos += 7;
+
+      const trendData = reportData.weeklyTrends;
+      const maxTasks = Math.max(...trendData.map(t => t.tasks), 1);
+      const barWidth = contentWidth / trendData.length - 10;
+
+      trendData.forEach((trend, index) => {
+        const height = (trend.tasks / maxTasks) * 20; // Max bar height 20mm
+
+        pdf.setFillColor(136, 132, 216); // purple
+        pdf.rect(margin + index * (barWidth + 10), yPos + 20 - height, barWidth, height, "F");
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(0);
+        pdf.text(trend.name, margin + index * (barWidth + 10) + barWidth / 2 - 5, yPos + 25);
+
+        pdf.text(String(trend.tasks), margin + index * (barWidth + 10) + barWidth / 2 - 3, yPos + 18 - height - 2);
+      });
+
+      yPos += 30;
+
+      // Team Performance if available
+      if (reportData.teamPerformance.length > 0) {
+        checkAddPage(35);
+        pdf.setFontSize(12);
+        pdf.setFont(undefined, "bold");
+        pdf.setTextColor(0);
+        pdf.text("Team Performance", margin, yPos);
+        yPos += 7;
+
+        pdf.setFontSize(9);
+        pdf.setFont(undefined, "bold");
+        pdf.text("Team", margin, yPos);
+        pdf.text("Total", margin + 90, yPos);
+        pdf.text("Completed", margin + 120, yPos);
+        pdf.text("Rate", margin + 160, yPos);
+        yPos += 5;
+
+        pdf.setFont(undefined, "normal");
+        reportData.teamPerformance.forEach((team) => {
+          const completionRate = team.total > 0 ? ((team.completed / team.total) * 100).toFixed(0) : 0;
+
+          pdf.text(
+            team.name.length > 25 ? team.name.substring(0, 25) + "..." : team.name,
+            margin,
+            yPos
+          );
+          pdf.text(String(team.total), margin + 90, yPos);
+          pdf.text(String(team.completed), margin + 120, yPos);
+          pdf.text(`${completionRate}%`, margin + 160, yPos);
+
+          yPos += 5;
+        });
+
+        yPos += 5;
       }
 
-      // Add header with timestamp and page numbers
+      // Project Performance
+      checkAddPage(35);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Project Performance", margin, yPos);
+      yPos += 7;
+
+      pdf.setFontSize(9);
+      pdf.setFont(undefined, "bold");
+      pdf.text("Project", margin, yPos);
+      pdf.text("Total", margin + 90, yPos);
+      pdf.text("Completed", margin + 120, yPos);
+      pdf.text("Progress", margin + 160, yPos);
+      yPos += 5;
+
+      pdf.setFont(undefined, "normal");
+      reportData.projectProgress.forEach((project) => {
+        pdf.text(
+          project.name.length > 25 ? project.name.substring(0, 25) + "..." : project.name,
+          margin,
+          yPos
+        );
+        pdf.text(String(project.total), margin + 90, yPos);
+        pdf.text(String(project.completed), margin + 120, yPos);
+        pdf.text(`${Math.round(project.progress)}%`, margin + 160, yPos);
+
+        yPos += 5;
+      });
+
+      yPos += 5;
+
+      // Task List Summary Table
+      checkAddPage(60);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Task Details Summary", margin, yPos);
+      yPos += 7;
+
+      // Table headers
+      pdf.setFontSize(8);
+      pdf.setFont(undefined, "bold");
+      pdf.setFillColor(230, 230, 230);
+      pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+
+      pdf.text("Task", margin + 2, yPos);
+      pdf.text("Project", margin + 50, yPos);
+      pdf.text("Status", margin + 90, yPos);
+      pdf.text("Priority", margin + 120, yPos);
+      pdf.text("Due Date", margin + 150, yPos);
+      pdf.text("Assigned", margin + 175, yPos);
+
+      yPos += 6;
+
+      // Table rows
+      pdf.setFont(undefined, "normal");
+      let rowCount = 0;
+      const maxRows = 25; // Limit rows per report
+
+      // Sort tasks by priority (1 highest) then status
+      const sortedTasks = [...reportData.tasks].sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return a.status.localeCompare(b.status);
+      });
+
+      sortedTasks.slice(0, maxRows).forEach((task, idx) => {
+        checkAddPage(10);
+
+        if (idx % 2 === 0) {
+          pdf.setFillColor(250, 250, 250);
+          pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+        }
+
+        pdf.setTextColor(0);
+        const taskName = task.title.length > 15 ? task.title.substring(0, 15) + "..." : task.title;
+        pdf.text(taskName, margin + 2, yPos);
+
+        const projectName = task.project?.name || "N/A";
+        pdf.text(
+          projectName.length > 15 ? projectName.substring(0, 15) + "..." : projectName,
+          margin + 50,
+          yPos
+        );
+
+        const statusColors = {
+          "todo": [150, 150, 150],
+          "in_progress": [0, 136, 254],
+          "on_hold": [255, 187, 40],
+          "cancelled": [234, 67, 53],
+          "Completed": [52, 168, 83],
+        };
+        pdf.setTextColor(...(statusColors[task.status] || [0, 0, 0]));
+        pdf.text(task.status.replace("_", " "), margin + 90, yPos);
+
+        pdf.setTextColor(0);
+        const priorityMap = {
+          1: "Critical",
+          2: "High",
+          3: "Medium",
+          4: "Low"
+        };
+        pdf.text(priorityMap[task.priority] || "N/A", margin + 120, yPos);
+
+        const dueDate = task.due_date ? format(new Date(task.due_date), "MMM d") : "N/A";
+        pdf.text(dueDate, margin + 150, yPos);
+
+        const assigned = task.assignments?.map(a => a.profiles ? `${a.profiles.first_name[0]}.${a.profiles.last_name[0]}.` : "U").join(", ") || "Unassigned";
+        pdf.text(
+          assigned.length > 10 ? assigned.substring(0, 10) + "..." : assigned,
+          margin + 175,
+          yPos
+        );
+
+        yPos += 6;
+        rowCount++;
+      });
+
+      if (reportData.tasks.length > maxRows) {
+        yPos += 3;
+        pdf.setFontSize(8);
+        pdf.setTextColor(100);
+        pdf.setFont(undefined, "italic");
+        pdf.text(
+          `Showing ${maxRows} of ${reportData.tasks.length} tasks. View dashboard for complete list.`,
+          margin,
+          yPos
+        );
+      }
+
+      // Footer on all pages
       const totalPages = pdf.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         pdf.setPage(i);
-        // Add page number footer
-        pdf.setFontSize(10);
-        pdf.setTextColor(100);
+        pdf.setFontSize(8);
+        pdf.setTextColor(150);
         pdf.text(
           `Page ${i} of ${totalPages}`,
-          pdf.internal.pageSize.getWidth() / 2,
-          pdf.internal.pageSize.getHeight() - 10,
+          pageWidth / 2,
+          pageHeight - 10,
           { align: "center" }
         );
-        // Add timestamp on first page - MOVED TO TOP RIGHT
-        if (i === 1) {
-          pdf.setFontSize(8);
-          pdf.setTextColor(150);
-          // Position in top right corner (page width - margin, small top margin)
-          pdf.text(
-            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-            pdf.internal.pageSize.getWidth() - 10, // Right margin
-            10, // Top margin
-            { align: "right" }
-          );
-        }
+        pdf.text(
+          "Weekly Reports Dashboard",
+          margin,
+          pageHeight - 10
+        );
       }
 
-      // Save the PDF
       const fileName = `Weekly-Report-${format(new Date(), "yyyy-MM-dd")}.pdf`;
       pdf.save(fileName);
     } catch (error) {

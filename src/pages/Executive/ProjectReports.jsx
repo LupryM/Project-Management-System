@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 import {
   Container,
   Row,
@@ -53,12 +52,11 @@ import {
 
 // Define colors for charts
 const COLORS = [
-  "#0088FE", // Blue
-  "#00C49F", // Teal
-  "#FFBB28", // Yellow
-  "#FF8042", // Orange
-  "#8884D8", // Purple
-  "#82CA9D", // Green
+  "#0088FE", // Blue (To Do)
+  "#00C49F", // Teal (In Progress)
+  "#FFBB28", // Yellow (On Hold)
+  "#FF8042", // Orange (Cancelled)
+  "#8884D8", // Purple (Completed) - Replaced by a better color in JSX
 ];
 
 const TaskAnalyticsReport = () => {
@@ -132,14 +130,12 @@ const TaskAnalyticsReport = () => {
   const reportData = useMemo(() => {
     let filtered = tasks;
 
-    // Apply project filter
+    // Apply filters (Project, Assignee, Priority)
     if (filters.project !== "all") {
       filtered = filtered.filter(
         (task) => task.project_id === parseInt(filters.project)
       );
     }
-
-    // Apply assignee filter
     if (filters.assignee !== "all") {
       filtered = filtered.filter(
         (task) =>
@@ -149,15 +145,13 @@ const TaskAnalyticsReport = () => {
           )
       );
     }
-
-    // Apply priority filter
     if (filters.priority !== "all") {
       filtered = filtered.filter(
         (task) => task.priority === parseInt(filters.priority)
       );
     }
 
-    // Apply date range filter
+    // Apply date range filter (based on creation date)
     if (filters.dateRange !== "all") {
       const today = new Date();
       let startDate, endDate;
@@ -195,98 +189,345 @@ const TaskAnalyticsReport = () => {
 
   const exportToPDF = async () => {
     setExporting(true);
-
     try {
-      // Get the main content element to capture
-      const element = document.getElementById("report-content");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - 2 * margin;
+      let yPos = margin;
 
-      if (!element) {
-        throw new Error("Report content not found");
-      }
+      // Helper function to add new page if needed
+      const checkAddPage = (requiredSpace) => {
+        if (yPos + requiredSpace > pageHeight - margin) {
+          pdf.addPage();
+          yPos = margin;
+          return true;
+        }
+        return false;
+      };
 
-      // Show a temporary message to ensure DOM is ready
-      const originalContent = element.innerHTML;
+      // Header
+      pdf.setFontSize(20);
+      pdf.setFont(undefined, "bold");
+      pdf.text("Task Analytics Report", margin, yPos);
+      yPos += 8;
 
-      // Capture the entire content as canvas
-      const canvas = await html2canvas(element, {
-        scale: 2, // Higher quality
-        useCORS: true,
-        allowTaint: false,
-        scrollY: -window.scrollY,
-        width: element.scrollWidth,
-        height: element.scrollHeight,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, "normal");
+      pdf.setTextColor(100);
+      pdf.text(
+        `Generated on ${format(new Date(), "MMMM d, yyyy 'at' h:mm a")}`,
+        margin,
+        yPos
+      );
+      yPos += 10;
+
+      // Executive Summary Box
+      pdf.setDrawColor(200);
+      pdf.setFillColor(245, 247, 250);
+      pdf.roundedRect(margin, yPos, contentWidth, 35, 2, 2, "FD");
+
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Executive Summary", margin + 5, yPos + 7);
+
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, "normal");
+
+      const summaryData = [
+        {
+          label: "Total Tasks",
+          value: taskStats.total,
+          color: [66, 133, 244],
+        },
+        {
+          label: "Completed",
+          value: taskStats.completed,
+          color: [52, 168, 83],
+        },
+        {
+          label: "Due This Week",
+          value: taskStats.dueThisWeek,
+          color: [251, 188, 5],
+        },
+        {
+          label: "Overdue",
+          value: taskStats.overdue,
+          color: [234, 67, 53],
+        },
+      ];
+
+      let xOffset = margin + 5;
+      summaryData.forEach((item) => {
+        pdf.setTextColor(...item.color);
+        pdf.setFont(undefined, "bold");
+        pdf.setFontSize(16);
+        pdf.text(String(item.value), xOffset, yPos + 18);
+
+        pdf.setTextColor(100);
+        pdf.setFont(undefined, "normal");
+        pdf.setFontSize(9);
+        pdf.text(item.label, xOffset, yPos + 25);
+
+        xOffset += contentWidth / 4;
       });
 
-      // Create PDF
-      const pdf = new jsPDF("p", "mm", "a4");
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      yPos += 42;
 
-      let heightLeft = imgHeight;
-      let position = 0;
+      // Task Status Breakdown
+      checkAddPage(50);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Task Status Breakdown", margin, yPos);
+      yPos += 7;
 
-      // Add first page
-      pdf.addImage(
-        canvas.toDataURL("image/png"),
-        "PNG",
-        0,
-        position,
-        imgWidth,
-        imgHeight
-      );
-      heightLeft -= pageHeight;
+      const statusData = taskStats.statusDistribution;
+      const barHeight = 8;
 
-      // Add additional pages if content is longer than one page
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(
-          canvas.toDataURL("image/png"),
-          "PNG",
-          0,
-          position,
-          imgWidth,
-          imgHeight
+      statusData.forEach((status) => {
+        if (status.value === 0) return;
+
+        const percentage = taskStats.total > 0 ? (status.value / taskStats.total) * 100 : 0;
+        const barWidth = (contentWidth - 60) * (percentage / 100);
+
+        const colors = {
+          "To Do": [0, 136, 254],
+          "In Progress": [0, 196, 159],
+          "On Hold": [255, 187, 40],
+          "Cancelled": [255, 128, 66],
+          "Completed": [136, 132, 216],
+        };
+        const color = colors[status.name] || [150, 150, 150];
+
+        pdf.setFillColor(...color);
+        pdf.rect(margin + 55, yPos - 5, barWidth, barHeight, "F");
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(0);
+        pdf.text(status.name, margin, yPos);
+
+        pdf.setTextColor(100);
+        pdf.text(
+          `${status.value} (${percentage.toFixed(0)}%)`,
+          margin + 60 + barWidth + 2,
+          yPos
         );
-        heightLeft -= pageHeight;
+
+        yPos += barHeight + 3;
+      });
+
+      yPos += 5;
+
+      // Priority Distribution
+      checkAddPage(35);
+      pdf.setFontSize(12);
+      pdf.setFont(undefined, "bold");
+      pdf.setTextColor(0);
+      pdf.text("Task Priority Distribution", margin, yPos);
+      yPos += 7;
+
+      taskStats.priorityDistribution.forEach((priority) => {
+        if (priority.value === 0) return;
+
+        const percentage = taskStats.total > 0 ? (priority.value / taskStats.total) * 100 : 0;
+        const barWidth = (contentWidth - 60) * (percentage / 100);
+
+        const colors = {
+          Critical: [234, 67, 53],
+          High: [251, 188, 5],
+          Medium: [66, 133, 244],
+          Low: [158, 158, 158],
+        };
+        const color = colors[priority.name] || [150, 150, 150];
+
+        pdf.setFillColor(...color);
+        pdf.rect(margin + 55, yPos - 5, barWidth, barHeight, "F");
+
+        pdf.setFontSize(9);
+        pdf.setTextColor(0);
+        pdf.text(priority.name, margin, yPos);
+
+        pdf.setTextColor(100);
+        pdf.text(
+          `${priority.value} (${percentage.toFixed(0)}%)`,
+          margin + 60 + barWidth + 2,
+          yPos
+        );
+
+        yPos += barHeight + 3;
+      });
+
+      yPos += 8;
+
+      // Top 10 Overdue Tasks
+      if (taskStats.overdueTasksList.length > 0) {
+        checkAddPage(50);
+        pdf.setFontSize(12);
+        pdf.setFont(undefined, "bold");
+        pdf.setTextColor(234, 67, 53);
+        pdf.text(`Critical: Top 10 Overdue Tasks (Total: ${taskStats.overdue})`, margin, yPos);
+        yPos += 7;
+
+        pdf.setFontSize(8);
+        pdf.setFont(undefined, "bold");
+        pdf.setFillColor(255, 235, 235);
+        pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+
+        pdf.setTextColor(0);
+        pdf.text("Task", margin + 2, yPos);
+        pdf.text("Project", margin + 70, yPos);
+        pdf.text("Priority", margin + 115, yPos);
+        pdf.text("Days Late", margin + 150, yPos);
+
+        yPos += 6;
+
+        pdf.setFont(undefined, "normal");
+        taskStats.overdueTasksList.slice(0, 10).forEach((task) => {
+          checkAddPage(10);
+
+          if (task.daysOverdue > 7) {
+            pdf.setFillColor(255, 235, 235);
+          } else {
+            pdf.setFillColor(255, 250, 235);
+          }
+          pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+
+          pdf.setTextColor(0);
+          const taskName = task.title.length > 25 ? task.title.substring(0, 25) + "..." : task.title;
+          pdf.text(taskName, margin + 2, yPos);
+
+          const projectName = task.project?.name || "No Project";
+          pdf.text(
+            projectName.length > 15 ? projectName.substring(0, 15) + "..." : projectName,
+            margin + 70,
+            yPos
+          );
+
+          const priorityMap = { 1: "Critical", 2: "High", 3: "Medium", 4: "Low" };
+          const priorityColors = { 1: [234, 67, 53], 2: [251, 188, 5], 3: [66, 133, 244], 4: [158, 158, 158] };
+          pdf.setTextColor(...(priorityColors[task.priority] || [0, 0, 0]));
+          pdf.text(priorityMap[task.priority] || "Unknown", margin + 115, yPos);
+
+          pdf.setTextColor(task.daysOverdue > 7 ? 234 : 251, task.daysOverdue > 7 ? 67 : 188, task.daysOverdue > 7 ? 53 : 5);
+          pdf.text(`${task.daysOverdue}d`, margin + 150, yPos);
+
+          yPos += 6;
+        });
+
+        yPos += 5;
       }
 
-      // Add header with timestamp and page numbers
-      // Add header with timestamp and page numbers
+      // Project Performance
+      if (taskStats.projectPerformance.length > 0) {
+        checkAddPage(45);
+        pdf.setFontSize(12);
+        pdf.setFont(undefined, "bold");
+        pdf.setTextColor(0);
+        pdf.text("Project Performance (Top 10)", margin, yPos);
+        yPos += 7;
+
+        pdf.setFontSize(8);
+        pdf.setFont(undefined, "bold");
+        pdf.setFillColor(230, 230, 230);
+        pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+
+        pdf.text("Project", margin + 2, yPos);
+        pdf.text("Total", margin + 90, yPos);
+        pdf.text("Completed", margin + 120, yPos);
+        pdf.text("Rate", margin + 160, yPos);
+
+        yPos += 6;
+
+        pdf.setFont(undefined, "normal");
+        taskStats.projectPerformance.slice(0, 10).forEach((project, idx) => {
+          checkAddPage(10);
+
+          if (idx % 2 === 0) {
+            pdf.setFillColor(250, 250, 250);
+            pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+          }
+
+          pdf.setTextColor(0);
+          const projName = project.name.length > 28 ? project.name.substring(0, 28) + "..." : project.name;
+          pdf.text(projName, margin + 2, yPos);
+
+          pdf.text(String(project.total), margin + 90, yPos);
+          pdf.text(String(project.completed), margin + 120, yPos);
+
+          const rateColor = project.completionRate > 75 ? [52, 168, 83] : project.completionRate > 50 ? [66, 133, 244] : [251, 188, 5];
+          pdf.setTextColor(...rateColor);
+          pdf.text(`${project.completionRate.toFixed(0)}%`, margin + 160, yPos);
+
+          yPos += 6;
+        });
+
+        yPos += 5;
+      }
+
+      // User Performance
+      if (taskStats.userPerformance.length > 0) {
+        checkAddPage(45);
+        pdf.setFontSize(12);
+        pdf.setFont(undefined, "bold");
+        pdf.setTextColor(0);
+        pdf.text("User Performance (Top 10)", margin, yPos);
+        yPos += 7;
+
+        pdf.setFontSize(8);
+        pdf.setFont(undefined, "bold");
+        pdf.setFillColor(230, 230, 230);
+        pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+
+        pdf.text("Assignee", margin + 2, yPos);
+        pdf.text("Assigned", margin + 90, yPos);
+        pdf.text("Completed", margin + 120, yPos);
+        pdf.text("Rate", margin + 160, yPos);
+
+        yPos += 6;
+
+        pdf.setFont(undefined, "normal");
+        taskStats.userPerformance.slice(0, 10).forEach((user, idx) => {
+          checkAddPage(10);
+
+          if (idx % 2 === 0) {
+            pdf.setFillColor(250, 250, 250);
+            pdf.rect(margin, yPos - 4, contentWidth, 6, "F");
+          }
+
+          pdf.setTextColor(0);
+          const userName = user.name.length > 28 ? user.name.substring(0, 28) + "..." : user.name;
+          pdf.text(userName, margin + 2, yPos);
+
+          pdf.text(String(user.total), margin + 90, yPos);
+          pdf.text(String(user.completed), margin + 120, yPos);
+
+          const rateColor = user.completionRate > 75 ? [52, 168, 83] : user.completionRate > 50 ? [66, 133, 244] : [251, 188, 5];
+          pdf.setTextColor(...rateColor);
+          pdf.text(`${user.completionRate.toFixed(0)}%`, margin + 160, yPos);
+
+          yPos += 6;
+        });
+      }
+
+      // Footer on all pages
       const totalPages = pdf.internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         pdf.setPage(i);
-        // Add page number footer
-        pdf.setFontSize(10);
-        pdf.setTextColor(100);
+        pdf.setFontSize(8);
+        pdf.setTextColor(150);
         pdf.text(
           `Page ${i} of ${totalPages}`,
-          pdf.internal.pageSize.getWidth() / 2,
-          pdf.internal.pageSize.getHeight() - 10,
+          pageWidth / 2,
+          pageHeight - 10,
           { align: "center" }
         );
-        // Add timestamp on first page - MOVED TO TOP RIGHT
-        if (i === 1) {
-          pdf.setFontSize(8);
-          pdf.setTextColor(150);
-          // Position in top right corner (page width - margin, small top margin)
-          pdf.text(
-            `Generated on ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-            pdf.internal.pageSize.getWidth() - 10, // Right margin
-            10, // Top margin
-            { align: "right" }
-          );
-        }
+        pdf.text("Task Analytics Report", margin, pageHeight - 10);
       }
 
-      // Save the PDF
-      const fileName = `Task-Analytics-Report-${format(
-        new Date(),
-        "yyyy-MM-dd"
-      )}.pdf`;
+      const fileName = `Task-Analytics-Report-${format(new Date(), "yyyy-MM-dd")}.pdf`;
       pdf.save(fileName);
     } catch (error) {
       console.error("PDF Export Error:", error);
@@ -295,17 +536,30 @@ const TaskAnalyticsReport = () => {
       setExporting(false);
     }
   };
+
   // Calculate statistics for analytics
   const taskStats = useMemo(() => {
     const total = reportData.length;
     const completed = reportData.filter((t) => t.status === "Completed").length;
-    const overdue = reportData.filter(
-      (t) =>
-        t.due_date &&
-        isBefore(parseISO(t.due_date), new Date()) &&
-        t.status !== "Completed" &&
-        t.status !== "cancelled"
-    ).length;
+    
+    // 1. Calculate and sort Overdue Tasks for Top 10 display
+    const overdueTasksList = reportData
+        .filter(
+            (t) =>
+                t.due_date &&
+                isBefore(parseISO(t.due_date), new Date()) &&
+                t.status !== "Completed" &&
+                t.status !== "cancelled"
+        )
+        .map(task => ({
+            ...task,
+            // Calculate days overdue here once
+            daysOverdue: differenceInDays(new Date(), parseISO(task.due_date))
+        }))
+        .sort((a, b) => b.daysOverdue - a.daysOverdue); // Sort descending by days overdue
+
+    const overdue = overdueTasksList.length;
+
     const dueThisWeek = reportData.filter(
       (t) =>
         t.due_date &&
@@ -330,9 +584,9 @@ const TaskAnalyticsReport = () => {
         value: reportData.filter((t) => t.priority === 3).length,
       },
       { name: "Low", value: reportData.filter((t) => t.priority === 4).length },
-    ];
+    ].filter(p => p.value > 0);
 
-    // Status distribution (updated to include on_hold and cancelled)
+    // Status distribution
     const statusDistribution = [
       {
         name: "To Do",
@@ -354,9 +608,9 @@ const TaskAnalyticsReport = () => {
         name: "Completed",
         value: reportData.filter((t) => t.status === "Completed").length,
       },
-    ];
+    ].filter(s => s.value > 0);
 
-    // Completion trend by week
+    // Completion trend by week (7 days leading up to today, or current week)
     const weekStart = startOfWeek(new Date());
     const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const weeklyTrend = days.map((day) => {
@@ -377,7 +631,7 @@ const TaskAnalyticsReport = () => {
       };
     });
 
-    // Project performance
+    // Project performance (Filter and Sort)
     const projectPerformance = projects
       .map((project) => {
         const projectTasks = reportData.filter(
@@ -397,9 +651,10 @@ const TaskAnalyticsReport = () => {
               : 0,
         };
       })
-      .filter((p) => p.total > 0);
+      .filter((p) => p.total > 0)
+      .sort((a, b) => b.completionRate - a.completionRate); // Sort descending
 
-    // User performance
+    // User performance (Filter and Sort)
     const userPerformance = users
       .map((user) => {
         const userTasks = reportData.filter(
@@ -420,7 +675,8 @@ const TaskAnalyticsReport = () => {
               : 0,
         };
       })
-      .filter((u) => u.total > 0);
+      .filter((u) => u.total > 0)
+      .sort((a, b) => b.completionRate - a.completionRate); // Sort descending
 
     return {
       total,
@@ -433,6 +689,7 @@ const TaskAnalyticsReport = () => {
       weeklyTrend,
       projectPerformance,
       userPerformance,
+      overdueTasksList,
     };
   }, [reportData, projects, users]);
 
@@ -451,21 +708,6 @@ const TaskAnalyticsReport = () => {
     return <Badge bg={variant}>{label}</Badge>;
   };
 
-  const StatusBadge = ({ status }) => {
-    const statusMap = {
-      todo: { label: "To Do", variant: "secondary" },
-      in_progress: { label: "In Progress", variant: "primary" },
-      on_hold: { label: "On Hold", variant: "warning" },
-      cancelled: { label: "Cancelled", variant: "danger" },
-      Completed: { label: "Completed", variant: "success" },
-    };
-    const { label, variant } = statusMap[status] || {
-      label: "Unknown",
-      variant: "secondary",
-    };
-    return <Badge bg={variant}>{label}</Badge>;
-  };
-
   // Custom label renderer for pie chart
   const renderCustomizedLabel = ({
     cx,
@@ -474,7 +716,6 @@ const TaskAnalyticsReport = () => {
     innerRadius,
     outerRadius,
     percent,
-    index,
   }) => {
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
@@ -497,8 +738,9 @@ const TaskAnalyticsReport = () => {
   };
 
   // Custom tooltip for pie chart
-  const CustomPieTooltip = ({ active, payload }) => {
+  const CustomPieTooltip = ({ active, payload, total }) => {
     if (active && payload && payload.length) {
+      const data = payload[0];
       return (
         <div
           className="custom-tooltip p-2 rounded shadow-sm"
@@ -507,10 +749,10 @@ const TaskAnalyticsReport = () => {
             border: "1px solid #ccc",
           }}
         >
-          <p className="mb-1 fw-bold">{payload[0].name}</p>
-          <p className="mb-0">{`Tasks: ${payload[0].value}`}</p>
+          <p className="mb-1 fw-bold">{data.name}</p>
+          <p className="mb-0">{`Tasks: ${data.value}`}</p>
           <p className="mb-0">{`Percentage: ${(
-            (payload[0].value / taskStats.total) *
+            (data.value / taskStats.total) *
             100
           ).toFixed(1)}%`}</p>
         </div>
@@ -532,339 +774,233 @@ const TaskAnalyticsReport = () => {
 
   return (
     <Container fluid className="py-4">
-      <div id="report-content">
-        <Row className="mb-4">
-          <Col>
-            <h2 className="d-flex align-items-center">
-              <BsListTask className="me-2" /> Task Analytics Report
-            </h2>
-            <p className="text-muted">
-              Comprehensive analysis of task performance and metrics
-            </p>
-          </Col>
-          <Col xs="auto">
-            <Button
-              variant="outline-primary"
-              onClick={exportToPDF}
-              disabled={exporting || loading}
-            >
-              {exporting ? (
-                <>
-                  <Spinner animation="border" size="sm" className="me-2" />
-                  Generating PDF...
-                </>
-              ) : (
-                <>
-                  <BsDownload className="me-2" /> Export Report
-                </>
-              )}
-            </Button>
-          </Col>
-        </Row>
-
-        {error && (
-          <Alert
-            variant="danger"
-            className="mb-4"
-            onClose={() => setError(null)}
-            dismissible
+      {/* Header and Export Button */}
+      <Row className="mb-4">
+        <Col>
+          <h2 className="d-flex align-items-center">
+            <BsListTask className="me-2" /> Task Analytics Report
+          </h2>
+          <p className="text-muted">
+            Comprehensive analysis of task performance and metrics
+          </p>
+        </Col>
+        <Col xs="auto">
+          <Button
+            variant="primary"
+            onClick={exportToPDF}
+            disabled={exporting || loading}
+            size="lg"
           >
-            {error}
-          </Alert>
-        )}
+            {exporting ? (
+              <>
+                <Spinner animation="border" size="sm" className="me-2" />
+                Generating Report...
+              </>
+            ) : (
+              <>
+                <BsDownload className="me-2" /> Export Professional Report
+              </>
+            )}
+          </Button>
+        </Col>
+      </Row>
 
-        {/* Filters */}
-        <Card className="mb-4">
-          <Card.Body>
-            <Row className="g-3">
-              <Col md={3}>
-                <Form.Select
-                  value={filters.dateRange}
-                  onChange={(e) =>
-                    setFilters({ ...filters, dateRange: e.target.value })
-                  }
-                >
-                  <option value="all">All Time</option>
-                  <option value="week">This Week</option>
-                  <option value="month">This Month</option>
-                  <option value="quarter">This Quarter</option>
-                </Form.Select>
-              </Col>
-              <Col md={3}>
-                <Form.Select
-                  value={filters.project}
-                  onChange={(e) =>
-                    setFilters({ ...filters, project: e.target.value })
-                  }
-                >
-                  <option value="all">All Projects</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Col>
-              <Col md={3}>
-                <Form.Select
-                  value={filters.assignee}
-                  onChange={(e) =>
-                    setFilters({ ...filters, assignee: e.target.value })
-                  }
-                >
-                  <option value="all">All Assignees</option>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.first_name} {user.last_name}
-                    </option>
-                  ))}
-                </Form.Select>
-              </Col>
-              <Col md={3}>
-                <Form.Select
-                  value={filters.priority}
-                  onChange={(e) =>
-                    setFilters({ ...filters, priority: e.target.value })
-                  }
-                >
-                  <option value="all">All Priorities</option>
-                  <option value="1">Critical</option>
-                  <option value="2">High</option>
-                  <option value="3">Medium</option>
-                  <option value="4">Low</option>
-                </Form.Select>
-              </Col>
-            </Row>
-          </Card.Body>
-        </Card>
+      {error && (
+        <Alert
+          variant="danger"
+          className="mb-4"
+          onClose={() => setError(null)}
+          dismissible
+        >
+          {error}
+        </Alert>
+      )}
 
-        {/* Summary Cards */}
-        <Row className="mb-4">
-          <Col md={3} className="mb-3">
-            <Card className="text-center">
-              <Card.Body>
-                <h3 className="text-primary">{taskStats.total}</h3>
-                <Card.Text>Total Tasks</Card.Text>
-                <small className="text-muted">In selected period</small>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col md={3} className="mb-3">
-            <Card className="text-center">
-              <Card.Body>
-                <h3 className="text-success">{taskStats.completed}</h3>
-                <Card.Text>Completed</Card.Text>
-                <small className="text-muted">
-                  {Math.round(taskStats.completionRate)}% completion rate
-                </small>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col md={3} className="mb-3">
-            <Card className="text-center">
-              <Card.Body>
-                <h3 className="text-warning">{taskStats.dueThisWeek}</h3>
-                <Card.Text>Due This Week</Card.Text>
-                <small className="text-muted">Pending completion</small>
-              </Card.Body>
-            </Card>
-          </Col>
-          <Col md={3} className="mb-3">
-            <Card className="text-center">
-              <Card.Body>
-                <h3 className="text-danger">{taskStats.overdue}</h3>
-                <Card.Text>Overdue</Card.Text>
-                <small className="text-muted">Past due date</small>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
+      {/* Filters */}
+      <Card className="mb-4">
+        <Card.Body>
+          <Row className="g-3">
+            <Col md={3}>
+              <Form.Select
+                aria-label="Filter by Date Range"
+                value={filters.dateRange}
+                onChange={(e) =>
+                  setFilters({ ...filters, dateRange: e.target.value })
+                }
+              >
+                <option value="all">All Time</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+                <option value="quarter">This Quarter</option>
+              </Form.Select>
+            </Col>
+            <Col md={3}>
+              <Form.Select
+                aria-label="Filter by Project"
+                value={filters.project}
+                onChange={(e) =>
+                  setFilters({ ...filters, project: e.target.value })
+                }
+              >
+                <option value="all">All Projects</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </Form.Select>
+            </Col>
+            <Col md={3}>
+              <Form.Select
+                aria-label="Filter by Assignee"
+                value={filters.assignee}
+                onChange={(e) =>
+                  setFilters({ ...filters, assignee: e.target.value })
+                }
+              >
+                <option value="all">All Assignees</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.first_name} {user.last_name}
+                  </option>
+                ))}
+              </Form.Select>
+            </Col>
+            <Col md={3}>
+              <Form.Select
+                aria-label="Filter by Priority"
+                value={filters.priority}
+                onChange={(e) =>
+                  setFilters({ ...filters, priority: e.target.value })
+                }
+              >
+                <option value="all">All Priorities</option>
+                <option value="1">Critical</option>
+                <option value="2">High</option>
+                <option value="3">Medium</option>
+                <option value="4">Low</option>
+              </Form.Select>
+            </Col>
+          </Row>
+        </Card.Body>
+      </Card>
 
-        {/* Charts Section */}
-        <Row className="mb-4">
-          {/* Task Status Distribution - FIXED PIE CHART */}
-          <Col md={6} className="mb-4">
-            <Card>
-              <Card.Header>
-                <h5 className="mb-0">Task Status Distribution</h5>
-              </Card.Header>
-              <Card.Body>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={taskStats.statusDistribution}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderCustomizedLabel}
-                      outerRadius={100}
-                      innerRadius={60}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {taskStats.statusDistribution.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={COLORS[index % COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<CustomPieTooltip />} />
-                    <Legend
-                      layout="vertical"
-                      verticalAlign="middle"
-                      align="right"
-                      wrapperStyle={{ paddingLeft: "20px" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </Card.Body>
-            </Card>
-          </Col>
+      {/* Summary Cards */}
+      <Row className="mb-4">
+        <Col md={3} className="mb-3">
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-primary">{taskStats.total}</h3>
+              <Card.Text>Total Tasks</Card.Text>
+              <small className="text-muted">In selected period</small>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3} className="mb-3">
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-success">{taskStats.completed}</h3>
+              <Card.Text>Completed</Card.Text>
+              <small className="text-muted">
+                {Math.round(taskStats.completionRate)}% completion rate
+              </small>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3} className="mb-3">
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-warning">{taskStats.dueThisWeek}</h3>
+              <Card.Text>Due This Week</Card.Text>
+              <small className="text-muted">Pending completion</small>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col md={3} className="mb-3">
+          <Card className="text-center">
+            <Card.Body>
+              <h3 className="text-danger">{taskStats.overdue}</h3>
+              <Card.Text>Overdue</Card.Text>
+              <small className="text-muted">Past due date</small>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
 
-          {/* Priority Distribution */}
-          <Col md={6} className="mb-4">
-            <Card>
-              <Card.Header>
-                <h5 className="mb-0">Task Priority Distribution</h5>
-              </Card.Header>
-              <Card.Body>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={taskStats.priorityDistribution}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="value" fill="#8884d8" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
+      {/* Charts Section 1 (Distribution) */}
+      <Row className="mb-4">
+        {/* Task Status Distribution - Pie Chart */}
+        <Col md={6} className="mb-4">
+          <Card>
+            <Card.Header>
+              <h5 className="mb-0">Task Status Distribution</h5>
+            </Card.Header>
+            <Card.Body>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={taskStats.statusDistribution}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={renderCustomizedLabel}
+                    outerRadius={100}
+                    innerRadius={60}
+                    dataKey="value"
+                  >
+                    {taskStats.statusDistribution.map((entry, index) => (
+                      <Cell
+                        key={`cell-status-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomPieTooltip />} />
+                  <Legend
+                    layout="vertical"
+                    verticalAlign="middle"
+                    align="right"
+                    wrapperStyle={{ paddingLeft: "20px" }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </Card.Body>
+          </Card>
+        </Col>
 
-        {/* Overdue Tasks Section */}
-        <Row className="mb-4">
-          <Col md={12}>
-            <Card className="border-danger">
-              <Card.Header className="bg-danger text-white">
-                <h5 className="mb-0 d-flex align-items-center">
-                  <BsExclamationTriangle className="me-2" /> Overdue Tasks (
-                  {taskStats.overdue})
-                </h5>
-              </Card.Header>
-              <Card.Body>
-                {taskStats.overdue > 0 ? (
-                  <div className="table-responsive">
-                    <Table striped hover>
-                      <thead>
-                        <tr>
-                          <th>Task</th>
-                          <th>Project</th>
-                          <th>Assignee</th>
-                          <th>Priority</th>
-                          <th>Days Overdue</th>
-                          <th>Due Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reportData
-                          .filter(
-                            (task) =>
-                              task.due_date &&
-                              isBefore(parseISO(task.due_date), new Date()) &&
-                              task.status !== "Completed" &&
-                              task.status !== "cancelled"
-                          )
-                          .map((task) => {
-                            const daysOverdue = differenceInDays(
-                              new Date(),
-                              parseISO(task.due_date)
-                            );
-                            return (
-                              <tr
-                                key={task.id}
-                                className={
-                                  daysOverdue > 7
-                                    ? "table-danger"
-                                    : "table-warning"
-                                }
-                              >
-                                <td>
-                                  <div>
-                                    <strong>{task.title}</strong>
-                                    {task.description && (
-                                      <div className="text-muted small">
-                                        {task.description.length > 50
-                                          ? `${task.description.substring(
-                                              0,
-                                              50
-                                            )}...`
-                                          : task.description}
-                                      </div>
-                                    )}
-                                  </div>
-                                </td>
-                                <td>{task.project?.name || "No Project"}</td>
-                                <td>
-                                  {task.assignments &&
-                                  task.assignments.length > 0
-                                    ? task.assignments
-                                        .map((a) =>
-                                          a.profiles
-                                            ? `${a.profiles.first_name} ${a.profiles.last_name}`
-                                            : "Unknown"
-                                        )
-                                        .join(", ")
-                                    : "Unassigned"}
-                                </td>
-                                <td>
-                                  <PriorityBadge priority={task.priority} />
-                                </td>
-                                <td>
-                                  <Badge
-                                    bg={daysOverdue > 7 ? "danger" : "warning"}
-                                  >
-                                    {daysOverdue}{" "}
-                                    {daysOverdue === 1 ? "day" : "days"}
-                                  </Badge>
-                                </td>
-                                <td>
-                                  {format(
-                                    parseISO(task.due_date),
-                                    "MMM d, yyyy"
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-4 text-muted">
-                    <BsCheckCircle size={32} className="text-success mb-2" />
-                    <h5>No overdue tasks!</h5>
-                    <p>All tasks are either completed or not yet due.</p>
-                  </div>
-                )}
-              </Card.Body>
-            </Card>
-          </Col>
-        </Row>
+        {/* Priority Distribution - Bar Chart */}
+        <Col md={6} className="mb-4">
+          <Card>
+            <Card.Header>
+              <h5 className="mb-0">Task Priority Distribution</h5>
+            </Card.Header>
+            <Card.Body>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={taskStats.priorityDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="value" fill="#8884d8" name="Tasks" />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
 
-        {/* Detailed Tables */}
-        <Row>
-          {/* Task List Table */}
-          <Col md={12} className="mb-4">
-            <Card>
-              <Card.Header>
-                <h5 className="mb-0">
-                  Task Details ({reportData.length} tasks)
-                </h5>
-              </Card.Header>
-              <Card.Body>
+      {/* Overdue Tasks Section - MODIFIED TO TOP 10 */}
+      <Row className="mb-4">
+        <Col md={12}>
+          <Card className="border-danger">
+            <Card.Header className="bg-danger text-white">
+              <h5 className="mb-0 d-flex align-items-center">
+                <BsExclamationTriangle className="me-2" /> Top 10 Most Overdue Tasks (Total: {taskStats.overdue})
+              </h5>
+            </Card.Header>
+            <Card.Body>
+              {taskStats.overdueTasksList.length > 0 ? (
                 <div className="table-responsive">
                   <Table striped hover>
                     <thead>
@@ -873,14 +1009,19 @@ const TaskAnalyticsReport = () => {
                         <th>Project</th>
                         <th>Assignee</th>
                         <th>Priority</th>
-                        <th>Status</th>
+                        <th>Days Overdue</th>
                         <th>Due Date</th>
-                        <th>Created</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {reportData.map((task) => (
-                        <tr key={task.id}>
+                      {/* Slicing the list to only show the top 10 */}
+                      {taskStats.overdueTasksList.slice(0, 10).map((task) => (
+                        <tr
+                          key={task.id}
+                          className={
+                            task.daysOverdue > 7 ? "table-danger" : "table-warning"
+                          }
+                        >
                           <td>
                             <div>
                               <strong>{task.title}</strong>
@@ -909,31 +1050,159 @@ const TaskAnalyticsReport = () => {
                             <PriorityBadge priority={task.priority} />
                           </td>
                           <td>
-                            <StatusBadge status={task.status} />
+                            <Badge
+                              bg={task.daysOverdue > 7 ? "danger" : "warning"}
+                            >
+                              {task.daysOverdue}{" "}
+                              {task.daysOverdue === 1 ? "day" : "days"}
+                            </Badge>
                           </td>
                           <td>
-                            {task.due_date
-                              ? format(parseISO(task.due_date), "MMM d, yyyy")
-                              : "No due date"}
-                          </td>
-                          <td>
-                            {format(parseISO(task.created_at), "MMM d, yyyy")}
+                            {format(parseISO(task.due_date), "MMM d, yyyy")}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </Table>
                 </div>
-                {reportData.length === 0 && (
-                  <div className="text-center py-5 text-muted">
-                    No tasks found matching your filters
-                  </div>
-                )}
-              </Card.Body>
-            </Card>
+              ) : (
+                <div className="text-center py-4 text-muted">
+                  <BsCheckCircle size={32} className="text-success mb-2" />
+                  <h5>No overdue tasks!</h5>
+                  <p>All tasks are either completed or not yet due.</p>
+                </div>
+              )}
+              {/* If there are more than 10, indicate it */}
+              {taskStats.overdueTasksList.length > 10 && (
+                <p className="text-center text-muted small mt-3">
+                  * Showing top 10 most overdue tasks out of {taskStats.overdueTasksList.length}.
+                </p>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Detailed Tables - REPLACED WITH PERFORMANCE SUMMARIES */}
+      <Row>
+        {/* Project Performance Summary Table */}
+        <Col md={6} className="mb-4">
+          <Card>
+            <Card.Header>
+              <h5 className="mb-0">
+                Project Completion Rate (Top 10)
+              </h5>
+            </Card.Header>
+            <Card.Body>
+              <div className="table-responsive">
+                <Table striped hover size="sm">
+                  <thead>
+                    <tr>
+                      <th>Project</th>
+                      <th className="text-end">Total Tasks</th>
+                      <th className="text-end">Completed</th>
+                      <th className="text-end">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taskStats.projectPerformance.slice(0, 10).map((p) => (
+                      <tr key={p.name}>
+                        <td>{p.name}</td>
+                        <td className="text-end">{p.total}</td>
+                        <td className="text-end">{p.completed}</td>
+                        <td className="text-end">
+                          <Badge bg={p.completionRate > 75 ? "success" : p.completionRate > 50 ? "info" : "warning"}>
+                            {p.completionRate.toFixed(1)}%
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+              {taskStats.projectPerformance.length > 10 && (
+                <p className="text-center text-muted small mt-2">
+                  * Showing top 10 projects by completion rate.
+                </p>
+              )}
+              {taskStats.projectPerformance.length === 0 && (
+                <div className="text-center py-3 text-muted">No projects found with tasks.</div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+
+        {/* User Performance Summary Table */}
+        <Col md={6} className="mb-4">
+          <Card>
+            <Card.Header>
+              <h5 className="mb-0">
+                User Completion Rate (Top 10)
+              </h5>
+            </Card.Header>
+            <Card.Body>
+              <div className="table-responsive">
+                <Table striped hover size="sm">
+                  <thead>
+                    <tr>
+                      <th>Assignee</th>
+                      <th className="text-end">Total Assigned</th>
+                      <th className="text-end">Completed</th>
+                      <th className="text-end">Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taskStats.userPerformance.slice(0, 10).map((u) => (
+                      <tr key={u.name}>
+                        <td>{u.name}</td>
+                        <td className="text-end">{u.total}</td>
+                        <td className="text-end">{u.completed}</td>
+                        <td className="text-end">
+                          <Badge bg={u.completionRate > 75 ? "success" : u.completionRate > 50 ? "info" : "warning"}>
+                            {u.completionRate.toFixed(1)}%
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+              {taskStats.userPerformance.length > 10 && (
+                <p className="text-center text-muted small mt-2">
+                  * Showing top 10 users by completion rate.
+                </p>
+              )}
+              {taskStats.userPerformance.length === 0 && (
+                <div className="text-center py-3 text-muted">No users found with assigned tasks.</div>
+              )}
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Weekly Completion/Creation Trend Chart - ADDED FOR MORE ANALYTICS VALUE */}
+      <Row className="mb-4">
+          <Col md={12}>
+              <Card>
+                  <Card.Header>
+                      <h5 className="mb-0">Weekly Task Trend (Creation vs. Completion)</h5>
+                  </Card.Header>
+                  <Card.Body>
+                      <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={taskStats.weeklyTrend}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="name" />
+                              <YAxis allowDecimals={false} />
+                              <Tooltip />
+                              <Legend />
+                              <Bar dataKey="created" fill="#8884d8" name="Tasks Created" />
+                              <Bar dataKey="completed" fill="#00C49F" name="Tasks Completed" />
+                          </BarChart>
+                      </ResponsiveContainer>
+                  </Card.Body>
+              </Card>
           </Col>
-        </Row>
-      </div>
+      </Row>
     </Container>
   );
 };

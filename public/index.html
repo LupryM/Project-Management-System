@@ -4,116 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Company Portal</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-    />
     <style>
-      /* Fix for the layout issue */
-      .app-container {
-        display: flex;
-        min-height: 100vh;
-      }
-
-      .main-content {
-        flex: 1;
-        padding: 1.5rem;
-        overflow: auto;
-        background-color: #f8f9fa;
-      }
-
-      /* Sidebar styling */
-      .sidebar {
-        width: 250px;
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-right: 1px solid #dee2e6;
-        flex-shrink: 0;
-      }
-
-      /* Navigation link styling */
-      .sidebar nav a {
-        display: block;
-        padding: 0.5rem 1rem;
-        margin-bottom: 0.5rem;
-        text-decoration: none;
-        color: #495057;
-        border-radius: 0.25rem;
-      }
-
-      .sidebar nav a:hover {
-        background-color: #e9ecef;
-      }
-
-      .sidebar nav a.active {
-        background-color: #007bff;
-        color: white;
-      }
-
-      /* Logout button */
-      .logout-btn {
-        margin-top: auto;
+      /* Make sure the page is completely white */
+      html, body {
+        margin: 0;
+        height: 100%;
+        background-color: #ffffff;
       }
     </style>
   </head>
   <body>
-    <div id="root">
-      <div class="app-container">
-        <div class="sidebar">
-          <div class="d-flex flex-column h-100">
-            <div class="mb-4">
-              <h4 class="text-primary">Company Portal</h4>
-            </div>
-
-            <nav class="flex-column">
-              <a href="#dashboard">Dashboard</a>
-              <a href="#employees">User Management</a>
-              <a href="#projects">Projects</a>
-              <a href="#tasks">My Tasks</a>
-              <a href="#profile">Profile</a>
-              <a href="#settings">Settings</a>
-            </nav>
-
-            <div class="mt-auto">
-              <button class="btn btn-outline-danger w-100">Logout</button>
-            </div>
-          </div>
-        </div>
-
-        <main class="main-content">
-          <h1>Dashboard Content</h1>
-          <p>
-            This is the main content area that was previously being squeezed
-            into the sidebar.
-          </p>
-
-          <div class="card">
-            <div class="card-body">
-              <h5 class="card-title">Welcome to your dashboard</h5>
-              <p class="card-text">
-                Now the content displays properly in the main area instead of
-                being constrained to the sidebar.
-              </p>
-              <a href="#" class="btn btn-primary">Sample Button</a>
-            </div>
-          </div>
-
-          <div class="mt-4">
-            <h3>Recent Activity</h3>
-            <ul class="list-group">
-              <li class="list-group-item">Project update submitted</li>
-              <li class="list-group-item">New task assigned</li>
-              <li class="list-group-item">Meeting scheduled for tomorrow</li>
-            </ul>
-          </div>
-        </main>
-      </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <div id="root"></div>
   </body>
 </html>

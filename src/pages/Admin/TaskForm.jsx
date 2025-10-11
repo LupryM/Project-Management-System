@@ -241,7 +241,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
             `User "${
               teamMembers.find((m) => m.user_id === userId)?.first_name ||
               "Unknown"
-            }" already has 3 or more active tasks.`
+            }" already has 5 or more active tasks.`
           );
         }
       }
