@@ -1,14 +1,34 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
+import FunWithMamaLogo from "../ui/FUNWITHMAMA.png";
 
 const ManagerSidebar = () => {
   const location = useLocation();
 
   return (
     <div className="sidebar">
-      <div className="sidebar-header">
-        <h3>Manager Portal</h3>
+         <div
+        className="sidebar-header"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingRight: "1.06rem", // optional spacing
+        }}
+      >
+        <h3 style={{ margin: 0 }}>Manager Portal</h3>
+        <img
+          src={FunWithMamaLogo}
+          alt="Logo"
+          style={{
+            height: "26px", // adjust size as needed
+            width: "auto",
+          }}
+          onError={(e) => {
+            e.target.style.display = "none";
+          }}
+        />
       </div>
       <nav className="sidebar-nav">
         <Link to="/" className={location.pathname === "/" ? "active" : ""}>

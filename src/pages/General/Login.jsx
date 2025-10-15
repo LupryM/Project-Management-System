@@ -5,10 +5,12 @@ import LoginForm from "../../components/ui/LoginForm";
 
 const LoginPage = () => {
   return (
-    <Container className="d-flex justify-content-center align-items-center min-vh-100">
+    // Add the "fluid" prop to the Container
+    <Container fluid className="d-flex justify-content-center align-items-center min-vh-100">
       <LoginForm />
     </Container>
   );
 };
+
 
 export default LoginPage;

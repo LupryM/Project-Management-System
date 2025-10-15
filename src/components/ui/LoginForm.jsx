@@ -1,20 +1,11 @@
-import React, { useState } from "react";
-import {
-  Card,
-  Form,
-  Button,
-  Alert,
-  Spinner,
-  Container,
-  Row,
-  Col,
-} from "react-bootstrap";
+import React, { useState, useEffect } from "react";
+import { Form, Button, Alert, Spinner, Card } from "react-bootstrap";
 import { supabase } from "../../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
+import FunWithMamaLogo from "./FUNWITHMAMA.png";
 import {
   BsEye,
   BsEyeSlash,
-  BsGoogle,
   BsShieldLock,
   BsArrowRight,
   BsFolder,
@@ -27,12 +18,65 @@ const TransitionLogin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
   const [isSignUp, setIsSignUp] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Inject critical CSS for full screen
+    const style = document.createElement("style");
+    style.textContent = `
+      .login-root {
+        width: 100vw !important;
+        height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 1000 !important;
+      }
+      .login-row {
+        width: 100% !important;
+        height: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex !important;
+      }
+      .login-col {
+        flex: 0 0 50% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-height: 100vh !important;
+      }
+      .login-right-col {
+        padding: 2rem !important;
+        box-sizing: border-box !important;
+      }
+      @media (max-width: 767.98px) {
+        .login-col {
+          flex: 0 0 100% !important;
+          min-height: 50vh !important;
+        }
+        .login-right-col {
+          padding: 1rem !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      if (document.head.contains(style)) {
+        document.head.removeChild(style);
+      }
+    };
+  }, []);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -69,52 +113,12 @@ const TransitionLogin = () => {
     }
   };
 
-  const handleGoogleAuth = async () => {
-    setGoogleLoading(true);
-    setError(null);
-
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-
-      if (error) throw error;
-    } catch (error) {
-      setError(
-        error.message || "An error occurred during Google authentication"
-      );
-      setGoogleLoading(false);
-    }
-  };
-  // Add this right after your imports in the login page
-  const loginStyles = `
-  .container-fluid.p-0 {
-    padding: 0 !important;
-  }
-  .row.g-0 {
-    margin: 0 !important;
-  }
-  .col-md-6.p-5 {
-    padding: 0 !important;
-  }
-`;
-
-  // Inject the styles
-  if (typeof document !== "undefined") {
-    const styleSheet = document.createElement("style");
-    styleSheet.textContent = loginStyles;
-    document.head.appendChild(styleSheet);
-  }
   return (
-    <Container fluid className="p-0" style={{ minHeight: "100vh" }}>
-      <Row className="g-0" style={{ minHeight: "100vh" }}>
-        {/* Left Side - Branding & Features (50%) */}
-        <Col
-          md={6}
-          className="d-flex align-items-center justify-content-center"
+    <div className="login-root">
+      <div className="login-row">
+        {/* Left Side - Branding */}
+        <div
+          className="login-col"
           style={{
             background:
               "linear-gradient(135deg, #0f0e17 0%, #1a1a2e 50%, #16213e 100%)",
@@ -139,7 +143,6 @@ const TransitionLogin = () => {
           />
           <div
             style={{
-              padding: "2rem", // Custom padding instead of p-5
               position: "absolute",
               bottom: "20%",
               right: "20%",
@@ -153,10 +156,14 @@ const TransitionLogin = () => {
           />
 
           <div
-            className="w-100"
-            style={{ maxWidth: "480px", zIndex: 2, position: "relative" }}
+            style={{
+              maxWidth: "480px",
+              width: "100%",
+              padding: "2rem",
+              zIndex: 2,
+              position: "relative",
+            }}
           >
-            {/* Logo/Brand */}
             <div className="text-center mb-5">
               <BsShieldLock size={48} className="text-primary mb-3" />
               <h1 className="fw-bold mb-3" style={{ fontSize: "2.5rem" }}>
@@ -167,7 +174,6 @@ const TransitionLogin = () => {
               </p>
             </div>
 
-            {/* Feature Cards - Dashboard Style */}
             <div className="row g-3 mb-5">
               {[
                 {
@@ -210,8 +216,11 @@ const TransitionLogin = () => {
                           {feature.title}
                         </h6>
                         <p
-                          className="text-muted mb-0"
-                          style={{ fontSize: "0.8rem" }}
+                          className="mb-0"
+                          style={{
+                            fontSize: "0.8rem",
+                            color: "#adb5bd",
+                          }}
                         >
                           {feature.desc}
                         </p>
@@ -222,7 +231,6 @@ const TransitionLogin = () => {
               ))}
             </div>
 
-            {/* Testimonial/Stats */}
             <div className="text-center">
               <div className="row g-4">
                 <div className="col-4">
@@ -247,26 +255,40 @@ const TransitionLogin = () => {
             </div>
           </div>
 
-          <style>
-            {`
-              @keyframes float {
-                0%, 100% { transform: translateY(0px) scale(1); }
-                50% { transform: translateY(-10px) scale(1.05); }
-              }
-            `}
-          </style>
-        </Col>
+          <style>{`
+            @keyframes float {
+              0%, 100% { transform: translateY(0px) scale(1); }
+              50% { transform: translateY(-10px) scale(1.05); }
+            }
+          `}</style>
+        </div>
 
-        {/* Right Side - Login Form (50%) */}
-        <Col
-          md={6}
-          className="d-flex align-items-center justify-content-center p-5 bg-light"
-          style={{ minHeight: "100vh" }}
-        >
-          <div className="w-100" style={{ maxWidth: "400px" }}>
-            <Card className="border-0 shadow-sm">
-              <Card.Body className="p-4">
-                <div className="text-center mb-4">
+        {/* Right Side - Login Form */}
+        <div className="login-col login-right-col bg-light">
+          <div style={{ maxWidth: "400px", width: "100%" }}>
+            <Card className="border-0 shadow-sm h-100">
+              <Card.Body className="p-4 d-flex flex-column">
+                {/* Company Logo - REPLACE WITH YOUR LOGO */}
+                <div className="text-center mb-4 flex-shrink-0">
+                  {/* PLACEHOLDER: Replace the img src below with your actual logo path */}
+                  <img
+                    src={FunWithMamaLogo}
+                    alt="Fun With Mama"
+                    style={{
+                      maxWidth: "60%",
+                      height: "auto",
+                      display: "block",
+                      marginLeft: "auto",
+                      marginRight: "auto",
+                      transform: "translateX(0px)", // adjust this value as needed
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = "none";
+                    }}
+                  />
+                </div>
+
+                <div className="text-center mb-4 flex-shrink-0">
                   <Card.Title
                     className="fw-bold mb-2 text-dark"
                     style={{ fontSize: "1.5rem" }}
@@ -285,7 +307,7 @@ const TransitionLogin = () => {
                     variant="danger"
                     dismissible
                     onClose={() => setError(null)}
-                    className="border-0 rounded-3 mb-3"
+                    className="border-0 rounded-3 mb-3 flex-shrink-0"
                   >
                     <div className="d-flex align-items-center">
                       <i className="fas fa-exclamation-circle me-2"></i>
@@ -299,7 +321,7 @@ const TransitionLogin = () => {
                     variant="success"
                     dismissible
                     onClose={() => setMessage(null)}
-                    className="border-0 rounded-3 mb-3"
+                    className="border-0 rounded-3 mb-3 flex-shrink-0"
                   >
                     <div className="d-flex align-items-center">
                       <i className="fas fa-check-circle me-2"></i>
@@ -308,37 +330,11 @@ const TransitionLogin = () => {
                   </Alert>
                 )}
 
-                {/* Google Sign In */}
-                <Button
-                  variant="outline-primary"
-                  className="w-100 mb-3 py-2 fw-semibold d-flex align-items-center justify-content-center"
-                  onClick={handleGoogleAuth}
-                  disabled={googleLoading}
-                  style={{
-                    borderRadius: "8px",
-                    border: "2px solid #0d6efd",
-                  }}
+                <Form
+                  onSubmit={handleAuth}
+                  className="flex-grow-1 d-flex flex-column"
                 >
-                  {googleLoading ? (
-                    <Spinner animation="border" size="sm" className="me-2" />
-                  ) : (
-                    <BsGoogle className="me-2" />
-                  )}
-                  {isSignUp ? "Sign up with Google" : "Sign in with Google"}
-                </Button>
-
-                <div className="position-relative text-center my-3">
-                  <hr className="my-4" />
-                  <span
-                    className="position-absolute top-50 start-50 translate-middle bg-white px-3 text-muted"
-                    style={{ fontSize: "0.9rem" }}
-                  >
-                    Or continue with email
-                  </span>
-                </div>
-
-                <Form onSubmit={handleAuth}>
-                  <Form.Group className="mb-3">
+                  <Form.Group className="mb-3 flex-shrink-0">
                     <Form.Label className="fw-semibold text-dark">
                       Email Address
                     </Form.Label>
@@ -353,12 +349,11 @@ const TransitionLogin = () => {
                         padding: "12px 16px",
                         borderRadius: "8px",
                         border: "2px solid #e9ecef",
-                        transition: "all 0.2s ease",
                       }}
                     />
                   </Form.Group>
 
-                  <Form.Group className="mb-4">
+                  <Form.Group className="mb-4 flex-shrink-0">
                     <Form.Label className="fw-semibold text-dark">
                       Password
                     </Form.Label>
@@ -375,7 +370,6 @@ const TransitionLogin = () => {
                           padding: "12px 48px 12px 16px",
                           borderRadius: "8px",
                           border: "2px solid #e9ecef",
-                          transition: "all 0.2s ease",
                         }}
                       />
                       <Button
@@ -413,7 +407,7 @@ const TransitionLogin = () => {
                   <Button
                     variant="primary"
                     type="submit"
-                    className="w-100 py-2 fw-semibold d-flex align-items-center justify-content-center"
+                    className="w-100 py-2 fw-semibold d-flex align-items-center justify-content-center flex-shrink-0"
                     disabled={loading}
                     style={{
                       borderRadius: "8px",
@@ -431,8 +425,6 @@ const TransitionLogin = () => {
                           as="span"
                           animation="border"
                           size="sm"
-                          role="status"
-                          aria-hidden="true"
                           className="me-2"
                         />
                         {isSignUp ? "Creating Account..." : "Signing In..."}
@@ -446,7 +438,7 @@ const TransitionLogin = () => {
                   </Button>
                 </Form>
 
-                <div className="text-center mt-4 pt-3 border-top">
+                <div className="text-center mt-4 pt-3 border-top flex-shrink-0">
                   <span className="text-muted me-2">
                     {isSignUp
                       ? "Already have an account?"
@@ -464,18 +456,16 @@ const TransitionLogin = () => {
               </Card.Body>
             </Card>
 
-            {/* Footer */}
             <div className="text-center mt-4">
               <small className="text-muted">
                 © 2024 Inovatech PMRS. All rights reserved.
               </small>
             </div>
           </div>
-        </Col>
-      </Row>
-    </Container>
+        </div>
+      </div>
+    </div>
   );
-  
 };
 
 export default TransitionLogin;

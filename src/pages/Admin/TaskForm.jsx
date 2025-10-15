@@ -238,7 +238,7 @@ const TaskForm = ({ projectId, teamMembers, onTaskCreated, project }) => {
 
         if (activeTasksCount >= 5) {
           throw new Error(
-            `User "${
+            `User "${ 
               teamMembers.find((m) => m.user_id === userId)?.first_name ||
               "Unknown"
             }" already has 5 or more active tasks.`
